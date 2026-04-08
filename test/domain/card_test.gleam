@@ -1,0 +1,83 @@
+import domain/card
+import domain/user
+import domain/values/non_empty_string as nes
+import gleeunit/should
+import helpers/factories as f
+
+pub fn new_test() {
+  let author = user.new()
+  let author_id = user.id(author)
+  let content = f.non_empty_string("Good vibes")
+
+  let card = card.new(author_id, content)
+
+  assert nes.to_string(card.content(card)) == "Good vibes"
+  assert card.author_id(card) == author_id
+}
+
+pub fn edit_test() {
+  let card = f.card()
+  card
+  |> card.edit(card.author_id(card), f.non_empty_string("New improved content"))
+  |> should.be_ok
+  |> card.content()
+  |> should.equal(f.non_empty_string("New improved content"))
+}
+
+pub fn update_not_author_test() {
+  let card = f.card()
+  card
+  |> card.edit(user.id(f.user()), f.non_empty_string("Bad vibes"))
+  |> should.be_error
+  |> should.equal(card.NotAuthor)
+}
+
+pub fn vote_test() {
+  let card = f.card()
+  card
+  |> card.reveal
+  |> card.vote(f.vote())
+  |> should.be_ok
+  |> card.vote(f.vote())
+  |> should.be_ok
+  |> card.vote_count()
+  |> should.equal(2)
+}
+
+pub fn vote_already_voted_test() {
+  let card = f.card()
+  let vote = f.vote()
+
+  card
+  |> card.reveal
+  |> card.vote(vote)
+  |> should.be_ok
+  |> card.vote(vote)
+  |> should.be_error
+  |> should.equal(card.AlreadyVoted)
+}
+
+pub fn remove_vote_test() {
+  let card = f.card()
+  let vote = f.vote()
+  card
+  |> card.reveal
+  |> card.vote(vote)
+  |> should.be_ok
+  |> card.remove_vote(vote)
+  |> should.be_ok
+  |> card.vote_count()
+  |> should.equal(0)
+}
+
+pub fn remove_vote_not_found_test() {
+  let card = f.card()
+
+  card
+  |> card.reveal
+  |> card.vote(f.vote())
+  |> should.be_ok
+  |> card.remove_vote(f.vote())
+  |> should.be_error
+  |> should.equal(card.VoteNotFound)
+}
