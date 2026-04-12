@@ -9,7 +9,7 @@ pub type CardId {
   CardId(uuid.Uuid)
 }
 
-pub opaque type Card(phase) {
+pub opaque type Card {
   Card(
     id: CardId,
     author_id: user.UserId,
@@ -18,26 +18,23 @@ pub opaque type Card(phase) {
   )
 }
 
-pub fn id(card: Card(phase)) -> CardId {
+pub fn id(card: Card) -> CardId {
   card.id
 }
 
-pub fn author_id(card: Card(phase)) -> user.UserId {
+pub fn author_id(card: Card) -> user.UserId {
   card.author_id
 }
 
-pub fn content(card: Card(phase)) -> nes.NonEmptyString {
+pub fn content(card: Card) -> nes.NonEmptyString {
   card.content
 }
 
-pub fn vote_count(card: Card(phase.Reviewing)) -> Int {
+pub fn vote_count(card: Card) -> Int {
   set.size(card.votes)
 }
 
-pub fn new(
-  author_id: user.UserId,
-  content: nes.NonEmptyString,
-) -> Card(phase.Drafting) {
+pub fn new(author_id: user.UserId, content: nes.NonEmptyString) -> Card {
   Card(
     id: CardId(uuid.v7()),
     author_id: author_id,
@@ -46,58 +43,68 @@ pub fn new(
   )
 }
 
-pub type UpdateCardError {
-  NotAuthor
+pub type EditError {
+  EditNotAuthor
+  EditNotDraft
 }
 
 pub fn edit(
-  card: Card(phase.Drafting),
+  card: Card,
   author_id: user.UserId,
   new_content: nes.NonEmptyString,
-) -> Result(Card(phase.Drafting), UpdateCardError) {
+  phase: phase.Phase,
+) -> Result(Card, EditError) {
+  use <- phase.authorize_phase(
+    current: phase,
+    allowed: phase.Draft,
+    error: EditNotDraft,
+  )
   let is_author = card.author_id == author_id
 
   case is_author {
-    False -> Error(NotAuthor)
+    False -> Error(EditNotAuthor)
     True -> Ok(Card(..card, content: new_content))
   }
 }
 
-pub fn reveal(card: Card(phase.Drafting)) -> Card(phase.Reviewing) {
-  let card: Card(phase.Reviewing) =
-    Card(
-      id: card.id,
-      author_id: card.author_id,
-      content: card.content,
-      votes: card.votes,
-    )
-  card
-}
-
 pub type VoteError {
-  AlreadyVoted
+  VoteAlreadyVoted
+  VoteNotReviewPhase
 }
 
 pub type RemoveVoteError {
-  VoteNotFound
+  RemoveVoteNotFound
+  RemoveVoteNotReviewPhase
 }
 
 pub fn vote(
-  card: Card(phase.Reviewing),
+  card: Card,
   vote: vote.Vote,
-) -> Result(Card(phase.Reviewing), VoteError) {
+  phase: phase.Phase,
+) -> Result(Card, VoteError) {
+  use <- phase.authorize_phase(
+    current: phase,
+    allowed: phase.Review,
+    error: VoteNotReviewPhase,
+  )
   case set.contains(card.votes, vote) {
-    True -> Error(AlreadyVoted)
+    True -> Error(VoteAlreadyVoted)
     False -> Ok(Card(..card, votes: set.insert(card.votes, vote)))
   }
 }
 
 pub fn remove_vote(
-  card: Card(phase.Reviewing),
+  card: Card,
   vote: vote.Vote,
-) -> Result(Card(phase.Reviewing), RemoveVoteError) {
+  phase: phase.Phase,
+) -> Result(Card, RemoveVoteError) {
+  use <- phase.authorize_phase(
+    current: phase,
+    allowed: phase.Review,
+    error: RemoveVoteNotReviewPhase,
+  )
   case set.contains(card.votes, vote) {
     True -> Ok(Card(..card, votes: set.delete(card.votes, vote)))
-    False -> Error(VoteNotFound)
+    False -> Error(RemoveVoteNotFound)
   }
 }

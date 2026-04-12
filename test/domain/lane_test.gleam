@@ -1,5 +1,6 @@
 import domain/card
 import domain/lane
+import domain/phase
 import domain/user
 import gleeunit/should
 import helpers/factories as f
@@ -24,11 +25,12 @@ pub fn lane_add_card_test() {
 
 pub fn update_card_test() {
   let card = f.card()
+  let phase = phase.Draft
 
   f.lane()
   |> lane.add_card(card)
   |> lane.update_card(card.id(card), fn(card) {
-    card.edit(card, card.author_id(card), f.non_empty_string("Updated"))
+    card.edit(card, card.author_id(card), f.non_empty_string("Updated"), phase)
   })
   |> should.be_ok
   |> lane.cards()
@@ -41,24 +43,36 @@ pub fn update_card_test() {
 pub fn update_card_propagate_error_test() {
   let card = f.card()
   let unauthorized_user = f.user()
+  let phase = phase.Draft
 
   f.lane()
   |> lane.add_card(card)
   |> lane.update_card(card.id(card), fn(card) {
-    card.edit(card, user.id(unauthorized_user), f.non_empty_string("Updated"))
+    card.edit(
+      card,
+      user.id(unauthorized_user),
+      f.non_empty_string("Updated"),
+      phase,
+    )
   })
   |> should.be_error
-  |> should.equal(lane.TransformError(card.NotAuthor))
+  |> should.equal(lane.TransformError(card.EditNotAuthor))
 }
 
 pub fn update_card_not_found_test() {
   let card = f.card()
   let another_card = f.card()
+  let phase = phase.Draft
 
   f.lane()
   |> lane.add_card(card)
   |> lane.update_card(card.id(another_card), fn(card) {
-    card.edit(card, card.author_id(another_card), f.non_empty_string("Updated"))
+    card.edit(
+      card,
+      card.author_id(another_card),
+      f.non_empty_string("Updated"),
+      phase,
+    )
   })
   |> should.be_error
   |> should.equal(lane.CardToUpdateNotFound)
@@ -94,12 +108,4 @@ pub fn remove_card_unauthorized_test() {
   |> lane.remove_card(card.id(card), user.id(not_owner))
   |> should.be_error
   |> should.equal(lane.NotAuthorOfCardToRemove)
-}
-
-pub fn lane_reveal_test() {
-  let card = f.card()
-
-  f.lane()
-  |> lane.add_card(card)
-  |> lane.reveal()
 }

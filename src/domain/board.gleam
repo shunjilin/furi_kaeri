@@ -9,29 +9,44 @@ pub type BoardId {
   BoardId(uuid.Uuid)
 }
 
-pub opaque type Board(phase) {
-  Board(id: BoardId, title: nes.NonEmptyString, lanes: List(lane.Lane(phase)))
+pub opaque type Board {
+  Board(
+    id: BoardId,
+    title: nes.NonEmptyString,
+    lanes: List(lane.Lane),
+    phase: phase.Phase,
+  )
 }
 
-pub fn new(
-  title: nes.NonEmptyString,
-  lanes: List(lane.Lane(phase.Drafting)),
-) -> Board(phase.Drafting) {
-  Board(BoardId(uuid.v7()), title, lanes: lanes)
+pub fn new(title: nes.NonEmptyString, lanes: List(lane.Lane)) -> Board {
+  Board(BoardId(uuid.v7()), title, lanes: lanes, phase: phase.Draft)
 }
 
-pub fn title(board: Board(phase)) -> nes.NonEmptyString {
+pub fn title(board: Board) -> nes.NonEmptyString {
   board.title
 }
 
-pub fn lanes(board: Board(phase)) -> List(lane.Lane(phase)) {
+pub fn lanes(board: Board) -> List(lane.Lane) {
   board.lanes
 }
 
-pub fn reveal_board(board: Board(phase.Drafting)) -> Board(phase.Reviewing) {
-  let updated_lanes = list.map(board.lanes, fn(lane) { lane.reveal(lane) })
+pub fn phase(board: Board) -> phase.Phase {
+  board.phase
+}
 
-  Board(..board, lanes: updated_lanes)
+pub type RevealError {
+  RevealBoardAlreadyInReview
+}
+
+pub fn reveal_board(board: Board) -> Result(Board, RevealError) {
+  case board.phase {
+    phase.Draft -> {
+      Ok(Board(..board, phase: phase.Review))
+    }
+    phase.Review -> {
+      Error(RevealBoardAlreadyInReview)
+    }
+  }
 }
 
 pub type UpdateLaneError(e) {
@@ -40,9 +55,9 @@ pub type UpdateLaneError(e) {
 }
 
 pub fn update_lane(
-  board: Board(phase),
+  board: Board,
   lane_id: lane.LaneId,
-  transform: fn(lane.Lane(phase)) -> Result(lane.Lane(phase), e),
+  transform: fn(lane.Lane) -> Result(lane.Lane, e),
 ) {
   case find_lane(board, lane_id) {
     Ok(lane) -> {
@@ -55,11 +70,11 @@ pub fn update_lane(
   }
 }
 
-fn find_lane(board: Board(phase), lane_id: lane.LaneId) {
+fn find_lane(board: Board, lane_id: lane.LaneId) {
   list.find(board.lanes, fn(lane) { lane.id(lane) == lane_id })
 }
 
-fn do_update_lane(board: Board(phase), updated_lane: lane.Lane(phase)) {
+fn do_update_lane(board: Board, updated_lane: lane.Lane) {
   Board(
     ..board,
     lanes: list.map(board.lanes, fn(lane) {

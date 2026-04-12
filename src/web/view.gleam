@@ -1,7 +1,6 @@
 import domain/board.{type Board}
 import domain/card
 import domain/lane
-import domain/phase.{type Drafting}
 import domain/user.{type User}
 import domain/values/non_empty_string
 import gleam/erlang/process.{type Subject}
@@ -18,7 +17,7 @@ import web/server.{type StateMsg, GetBoard, UpdateBoard}
 
 pub type Model {
   Model(
-    board: Board(Drafting),
+    board: Board,
     user: User,
     registry: GroupRegistry(SharedMsg),
     manager: Subject(StateMsg),
@@ -27,11 +26,11 @@ pub type Model {
 
 pub opaque type Msg {
   AppReceivedSharedMsg(msg: SharedMsg)
-  UserAddedCard(card: card.Card(Drafting), lane_id: lane.LaneId)
+  UserAddedCard(card: card.Card, lane_id: lane.LaneId)
 }
 
 pub opaque type SharedMsg {
-  ClientAddedCard(card: card.Card(Drafting), lane_id: lane.LaneId)
+  ClientAddedCard(card: card.Card, lane_id: lane.LaneId)
 }
 
 pub fn component(
@@ -105,7 +104,7 @@ fn view(model: Model) -> Element(Msg) {
   ])
 }
 
-fn render_lane(lane: lane.Lane(Drafting), user: User) -> Element(Msg) {
+fn render_lane(lane: lane.Lane, user: User) -> Element(Msg) {
   let title = lane.title(lane)
   let id = lane.id(lane)
 
@@ -127,7 +126,7 @@ fn render_lane(lane: lane.Lane(Drafting), user: User) -> Element(Msg) {
   )
 }
 
-fn render_card(card: card.Card(Drafting)) -> Element(Msg) {
+fn render_card(card: card.Card) -> Element(Msg) {
   html.div([], [html.text(non_empty_string.to_string(card.content(card)))])
 }
 

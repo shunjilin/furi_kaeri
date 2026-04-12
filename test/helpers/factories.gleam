@@ -1,7 +1,6 @@
 import domain/board
 import domain/card
 import domain/lane
-import domain/phase
 import domain/user
 import domain/values/non_empty_string as nes
 import domain/vote
@@ -15,13 +14,13 @@ pub fn user() -> user.User {
   user.new()
 }
 
-pub fn card() -> card.Card(phase.Drafting) {
+pub fn card() -> card.Card {
   let author = user()
 
   card.new(user.id(author), non_empty_string("Content"))
 }
 
-pub fn lane() -> lane.Lane(phase.Drafting) {
+pub fn lane() -> lane.Lane {
   lane.new(non_empty_string("Lane"))
 }
 
@@ -29,6 +28,6 @@ pub fn vote() -> vote.Vote {
   vote.Vote(user.id(user.new()))
 }
 
-pub fn board() -> board.Board(phase.Drafting) {
+pub fn board() -> board.Board {
   board.new(non_empty_string("Board"), [lane()])
 }

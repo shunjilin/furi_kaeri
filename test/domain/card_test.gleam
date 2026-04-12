@@ -1,4 +1,5 @@
 import domain/card
+import domain/phase
 import domain/user
 import domain/values/non_empty_string as nes
 import gleeunit/should
@@ -18,27 +19,31 @@ pub fn new_test() {
 pub fn edit_test() {
   let card = f.card()
   card
-  |> card.edit(card.author_id(card), f.non_empty_string("New improved content"))
+  |> card.edit(
+    card.author_id(card),
+    f.non_empty_string("New improved content"),
+    phase.Draft,
+  )
   |> should.be_ok
   |> card.content()
   |> should.equal(f.non_empty_string("New improved content"))
 }
 
-pub fn update_not_author_test() {
+pub fn edit_not_author_test() {
   let card = f.card()
   card
-  |> card.edit(user.id(f.user()), f.non_empty_string("Bad vibes"))
+  |> card.edit(user.id(f.user()), f.non_empty_string("Bad vibes"), phase.Draft)
   |> should.be_error
-  |> should.equal(card.NotAuthor)
+  |> should.equal(card.EditNotAuthor)
 }
 
 pub fn vote_test() {
   let card = f.card()
+  let phase = phase.Review
   card
-  |> card.reveal
-  |> card.vote(f.vote())
+  |> card.vote(f.vote(), phase)
   |> should.be_ok
-  |> card.vote(f.vote())
+  |> card.vote(f.vote(), phase)
   |> should.be_ok
   |> card.vote_count()
   |> should.equal(2)
@@ -47,24 +52,35 @@ pub fn vote_test() {
 pub fn vote_already_voted_test() {
   let card = f.card()
   let vote = f.vote()
+  let phase = phase.Review
 
   card
-  |> card.reveal
-  |> card.vote(vote)
+  |> card.vote(vote, phase)
   |> should.be_ok
-  |> card.vote(vote)
+  |> card.vote(vote, phase)
   |> should.be_error
-  |> should.equal(card.AlreadyVoted)
+  |> should.equal(card.VoteAlreadyVoted)
+}
+
+pub fn cannot_vote_when_draft_test() {
+  let card = f.card()
+  let vote = f.vote()
+  let phase = phase.Draft
+
+  card
+  |> card.vote(vote, phase)
+  |> should.be_error
+  |> should.equal(card.VoteNotReviewPhase)
 }
 
 pub fn remove_vote_test() {
   let card = f.card()
   let vote = f.vote()
+  let phase = phase.Review
   card
-  |> card.reveal
-  |> card.vote(vote)
+  |> card.vote(vote, phase)
   |> should.be_ok
-  |> card.remove_vote(vote)
+  |> card.remove_vote(vote, phase)
   |> should.be_ok
   |> card.vote_count()
   |> should.equal(0)
@@ -72,12 +88,24 @@ pub fn remove_vote_test() {
 
 pub fn remove_vote_not_found_test() {
   let card = f.card()
+  let phase = phase.Review
 
   card
-  |> card.reveal
-  |> card.vote(f.vote())
+  |> card.vote(f.vote(), phase)
   |> should.be_ok
-  |> card.remove_vote(f.vote())
+  |> card.remove_vote(f.vote(), phase)
   |> should.be_error
-  |> should.equal(card.VoteNotFound)
+  |> should.equal(card.RemoveVoteNotFound)
+}
+
+pub fn cannot_remove_vote_when_draft_test() {
+  let card = f.card()
+  let vote = f.vote()
+
+  card
+  |> card.vote(vote, phase.Review)
+  |> should.be_ok
+  |> card.remove_vote(vote, phase.Draft)
+  |> should.be_error
+  |> should.equal(card.RemoveVoteNotReviewPhase)
 }

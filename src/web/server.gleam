@@ -1,13 +1,12 @@
 import domain/board.{type Board}
 import domain/lane
-import domain/phase.{type Drafting}
 import domain/values/non_empty_string
 import gleam/erlang/process.{type Subject}
 import gleam/otp/actor
 
 pub type StateMsg {
-  GetBoard(reply_to: Subject(Board(Drafting)))
-  UpdateBoard(Board(Drafting))
+  GetBoard(reply_to: Subject(Board))
+  UpdateBoard(Board)
 }
 
 pub fn start() {
@@ -19,7 +18,7 @@ pub fn start() {
   |> actor.start
 }
 
-fn handle_message(board: Board(Drafting), message: StateMsg) {
+fn handle_message(board: Board, message: StateMsg) {
   case message {
     GetBoard(reply_to) -> {
       process.send(reply_to, board)
@@ -32,7 +31,7 @@ fn handle_message(board: Board(Drafting), message: StateMsg) {
   }
 }
 
-pub fn init_board() -> Board(Drafting) {
+pub fn init_board() -> Board {
   board.new(new_string("Retro"), [
     lane.new(new_string("Start")),
     lane.new(new_string("Stop")),
