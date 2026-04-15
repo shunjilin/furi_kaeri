@@ -1,10 +1,15 @@
+import domain/user
 import gleam/bytes_tree
 import gleam/erlang/application
 import gleam/erlang/process.{type Subject}
+import gleam/http/cookie
 import gleam/http/request.{type Request}
 import gleam/http/response.{type Response}
+import gleam/io
 import gleam/json
+import gleam/list
 import gleam/option.{None, Some}
+import gleam/result
 import group_registry.{type GroupRegistry}
 import lustre
 import lustre/attribute
@@ -12,26 +17,81 @@ import lustre/element
 import lustre/element/html.{html}
 import lustre/server_component
 import mist.{type Connection, type ResponseData}
-import web/server.{type StateMsg}
+import web/api/board
 import web/view
+import youid/uuid
+
+const user_id_key: String = "user_id"
 
 pub type Context {
-  Context(registry: GroupRegistry(view.SharedMsg), manager: Subject(StateMsg))
+  Context(
+    registry: GroupRegistry(view.SharedMsg),
+    manager: Subject(board.Message),
+  )
+}
+
+type GetUserResult {
+  NewUser(user.User)
+  ExistingUser(user.User)
+}
+
+fn get_user(req: Request(Connection)) -> GetUserResult {
+  let result =
+    req
+    |> request.get_cookies
+    |> list.find_map(fn(cookie) {
+      case cookie {
+        #(key, user_id_string) if key == user_id_key -> {
+          user_id_string
+          |> uuid.from_string()
+          |> result.map(fn(uuid) { user.new(user.UserId(uuid)) })
+        }
+        _ -> Error(Nil)
+      }
+    })
+
+  case result {
+    Ok(user) -> ExistingUser(user)
+    Error(Nil) -> NewUser(user.new(user.gen_id()))
+  }
 }
 
 pub fn handle_request(
   req: Request(Connection),
   ctx: Context,
 ) -> Response(ResponseData) {
+  let user_result = get_user(req)
+
+  let user = case user_result {
+    NewUser(user) -> {
+      io.print("New")
+      user
+    }
+    ExistingUser(user) -> user
+  }
+
   case request.path_segments(req) {
-    [] -> serve_html()
+    [] -> serve_html(user_result)
     ["lustre", "runtime.mjs"] -> serve_runtime()
-    ["ws"] -> serve_board(req, ctx)
+    ["ws"] -> serve_board(req, ctx, user)
     _ -> not_found()
   }
 }
 
-fn serve_html() -> Response(ResponseData) {
+fn cookie_attributes() {
+  cookie.Attributes(
+    // 12 hours
+    option.Some(60 * 60 * 12),
+    option.Some(""),
+    option.None,
+    // TODO: configure by env
+    False,
+    True,
+    option.Some(cookie.Strict),
+  )
+}
+
+fn serve_html(user_result: GetUserResult) -> Response(ResponseData) {
   let body =
     html([attribute.lang("en")], [
       html.head([], [
@@ -56,6 +116,22 @@ fn serve_html() -> Response(ResponseData) {
   response.new(200)
   |> response.set_body(mist.Bytes(body))
   |> response.set_header("content-type", "text/html")
+  |> fn(res) {
+    case user_result {
+      NewUser(user) -> {
+        let user.UserId(uuid) = user.id(user)
+        response.set_cookie(
+          res,
+          user_id_key,
+          uuid.to_string(uuid),
+          cookie_attributes(),
+        )
+      }
+      ExistingUser(_) -> {
+        res
+      }
+    }
+  }
 }
 
 fn serve_runtime() -> Response(ResponseData) {
@@ -71,11 +147,15 @@ fn serve_runtime() -> Response(ResponseData) {
   }
 }
 
-fn serve_board(req: Request(Connection), ctx: Context) -> Response(ResponseData) {
+fn serve_board(
+  req: Request(Connection),
+  ctx: Context,
+  user: user.User,
+) -> Response(ResponseData) {
   mist.websocket(
     request: req,
     on_init: fn(_conn) {
-      let component = view.component(ctx.manager)
+      let component = view.component(ctx.manager, user)
       let assert Ok(runtime) =
         lustre.start_server_component(component, ctx.registry)
 

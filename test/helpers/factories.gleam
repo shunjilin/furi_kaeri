@@ -11,7 +11,7 @@ pub fn non_empty_string(content: String) -> nes.NonEmptyString {
 }
 
 pub fn user() -> user.User {
-  user.new()
+  user.new(user.gen_id())
 }
 
 pub fn card() -> card.Card {
@@ -25,7 +25,7 @@ pub fn lane() -> lane.Lane {
 }
 
 pub fn vote() -> vote.Vote {
-  vote.Vote(user.id(user.new()))
+  vote.Vote(user.gen_id())
 }
 
 pub fn board() -> board.Board {

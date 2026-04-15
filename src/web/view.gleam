@@ -1,7 +1,7 @@
 import domain/board.{type Board}
 import domain/card
 import domain/lane
-import domain/user.{type User}
+import domain/user
 import domain/values/non_empty_string
 import gleam/erlang/process.{type Subject}
 import gleam/list
@@ -13,45 +13,47 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 import lustre/server_component
-import web/server.{type StateMsg, GetBoard, UpdateBoard}
+import web/api/board as board_api
 
 pub type Model {
   Model(
     board: Board,
-    user: User,
+    user: user.User,
     registry: GroupRegistry(SharedMsg),
-    manager: Subject(StateMsg),
+    manager: Subject(board_api.Message),
   )
 }
 
 pub opaque type Msg {
-  AppReceivedSharedMsg(msg: SharedMsg)
-  UserAddedCard(card: card.Card, lane_id: lane.LaneId)
+  AppReceivedSharedMsg(SharedMsg)
+  UserAddedCard(lane_id: lane.LaneId, content: String)
+  UserUpdatedBoard(board: board.Board)
+  UserReceivedError(String)
 }
 
 pub opaque type SharedMsg {
-  ClientAddedCard(card: card.Card, lane_id: lane.LaneId)
+  ApiReturnedBoard(board: board.Board)
 }
 
 pub fn component(
-  manager: Subject(StateMsg),
+  manager: Subject(board_api.Message),
+  user: user.User,
 ) -> App(GroupRegistry(SharedMsg), Model, Msg) {
-  lustre.application(init(_, manager), update, view)
+  lustre.application(init(_, manager, user), update, view)
 }
 
 fn init(
   registry: GroupRegistry(SharedMsg),
-  manager: Subject(StateMsg),
+  manager: Subject(board_api.Message),
+  user: user.User,
 ) -> #(Model, Effect(Msg)) {
-  let user = user.new()
   let self = process.new_subject()
 
-  // Ask the server for the board
-  process.send(manager, GetBoard(reply_to: self))
+  process.send(manager, board_api.GetBoard(reply_to: self))
 
   let initial_board = case process.receive(self, 1000) {
     Ok(b) -> b
-    Error(_) -> server.init_board()
+    Error(_) -> board_api.init_board()
   }
 
   let model =
@@ -67,26 +69,34 @@ fn init(
 
 fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
   case msg {
-    AppReceivedSharedMsg(ClientAddedCard(card, lane_id)) -> {
-      let result =
-        board.update_lane(model.board, lane_id, fn(l) {
-          Ok(lane.add_card(l, card))
-        })
-
-      case result {
-        Ok(updated_board) -> {
-          let sync_effect =
-            effect.from(fn(_) {
-              process.send(model.manager, UpdateBoard(updated_board))
+    UserAddedCard(lane_id, content) -> {
+      let effect =
+        effect.from(fn(dispatch) {
+          let result =
+            process.call(model.manager, 1000, fn(reply_to) {
+              board_api.AddCard(
+                user_id: user.id(model.user),
+                lane_id: lane_id,
+                content: content,
+                reply_to: reply_to,
+              )
             })
-          #(Model(..model, board: updated_board), sync_effect)
-        }
-        Error(_) -> #(model, effect.none())
-      }
+          case result {
+            Ok(updated_board) -> dispatch(UserUpdatedBoard(updated_board))
+            Error(error) -> dispatch(UserReceivedError(error))
+          }
+        })
+      #(model, effect)
     }
-
-    UserAddedCard(card, lane_id) -> {
-      #(model, broadcast(model.registry, ClientAddedCard(card, lane_id)))
+    UserUpdatedBoard(updated_board) -> {
+      #(model, broadcast(model.registry, ApiReturnedBoard(updated_board)))
+    }
+    UserReceivedError(_) -> {
+      // todo: handle error
+      #(model, effect.none())
+    }
+    AppReceivedSharedMsg(ApiReturnedBoard(updated_board)) -> {
+      #(Model(..model, board: updated_board), effect.none())
     }
   }
 }
@@ -99,12 +109,12 @@ fn view(model: Model) -> Element(Msg) {
     html.h1([], [html.text(non_empty_string.to_string(title))]),
     html.div(
       [attribute.style("display", "flex"), attribute.style("gap", "1rem")],
-      list.map(lanes, render_lane(_, model.user)),
+      list.map(lanes, render_lane),
     ),
   ])
 }
 
-fn render_lane(lane: lane.Lane, user: User) -> Element(Msg) {
+fn render_lane(lane: lane.Lane) -> Element(Msg) {
   let title = lane.title(lane)
   let id = lane.id(lane)
 
@@ -114,10 +124,7 @@ fn render_lane(lane: lane.Lane, user: User) -> Element(Msg) {
       html.h2([], [html.text(non_empty_string.to_string(title))]),
       html.button(
         [
-          event.on_click(UserAddedCard(
-            card: card.new(user.id(user), new_string("New Card")),
-            lane_id: id,
-          )),
+          event.on_click(UserAddedCard(lane_id: id, content: "Woo")),
         ],
         [html.text("+ Add Card")],
       ),
@@ -139,9 +146,4 @@ fn subscribe(registry, msg_wrapper) -> Effect(msg) {
 fn broadcast(registry: GroupRegistry(msg), msg: msg) -> Effect(any) {
   use _ <- effect.from
   list.each(group_registry.members(registry, "board"), process.send(_, msg))
-}
-
-fn new_string(str: String) {
-  let assert Ok(val) = non_empty_string.new(str)
-  val
 }

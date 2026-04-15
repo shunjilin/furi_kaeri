@@ -6,7 +6,7 @@ import gleeunit/should
 import helpers/factories as f
 
 pub fn new_test() {
-  let author = user.new()
+  let author = user.new(user.gen_id())
   let author_id = user.id(author)
   let content = f.non_empty_string("Good vibes")
 
