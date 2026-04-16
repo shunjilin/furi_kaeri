@@ -1,0 +1,167 @@
+/* 
+    Modern CSS Reset
+    https://www.joshwcomeau.com/css/custom-css-reset/
+ */
+
+/* 1. Use a more-intuitive box-sizing model */
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
+/* 2. Remove default margin */
+*:not(dialog) {
+    margin: 0;
+}
+
+/* 3. Enable keyword animations */
+@media (prefers-reduced-motion: no-preference) {
+    html {
+        interpolate-size: allow-keywords;
+    }
+}
+
+body {
+    /* 4. Increase line-height */
+    line-height: 1.5;
+    /* 5. Improve text rendering */
+    -webkit-font-smoothing: antialiased;
+}
+
+/* 6. Improve media defaults */
+img,
+picture,
+video,
+canvas,
+svg {
+    display: block;
+    max-width: 100%;
+}
+
+/* 7. Inherit fonts for form controls */
+input,
+button,
+textarea,
+select {
+    font: inherit;
+}
+
+/* 8. Avoid text overflows */
+p,
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+    overflow-wrap: break-word;
+}
+
+/* 9. Improve line wrapping */
+p {
+    text-wrap: pretty;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+    text-wrap: balance;
+}
+
+/*
+  10. Create a root stacking context
+*/
+#root,
+#__next {
+    isolation: isolate;
+}
+
+/* 
+    Tokens / Defaults
+*/
+:root {
+    --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+    --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+    --font-accent: 'Segoe Print', 'Bradley Hand', Chilanka, TSCu_Comic, casual, cursive;
+
+    --text-xs: 0.75rem;
+    --text-sm: 0.875rem;
+    --text-base: 1rem;
+    --text-lg: 1.25rem;
+    --text-xl: 1.5rem;
+    --text-2xl: 2rem;
+
+    --leading-none: 1;
+    --leading-tight: 1.2;
+    --leading-normal: 1.5;
+    --leading-relaxed: 1.75;
+
+    --space-1: 0.25rem;
+    --space-2: 0.5rem;
+    --space-4: 1rem;
+    --space-8: 2rem;
+
+    --color-bg: #c4ddf6;
+    --color-bg-secondary: #e7dcdc;
+    --color-bg-tertiary: #edf3d8;
+
+    --color-border: #202327;
+    --border-thin: 1px solid;
+}
+
+body {
+    font-family: var(--font-sans);
+    font-size: var(--text-base);
+    line-height: var(--leading-normal);
+    color: var(--color-text);
+    background-color: var(--color-bg);
+}
+
+h1 {
+    font-weight: 700;
+    font-size: var(--text-2xl);
+    line-height: var(--heading-tight)
+}
+
+h2 {
+    font-weight: 500;
+    font-size: var(--text-xl);
+    line-height: var(--leading-tight);
+}
+
+/* 
+    Every Layout
+*/
+.stack {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+}
+
+.stack>*+* {
+    margin-top: var(--space, var(--space-2));
+}
+
+.box {
+    padding: var(--padding, var(--space-4));
+    border-color: var(--color-border);
+    border-style: solid;
+    border-width: var(--border-width, 2px);
+    background-color: var(--background-color, var(--color-bg-surface));
+}
+
+.center {
+    box-sizing: content-box;
+    max-inline-size: var(--max, 60ch);
+    margin-inline: auto;
+    padding-inline-start: var(--space-1);
+    padding-inline-end: var(--space-1);
+}
+
+/* 
+    Custom Components
+*/

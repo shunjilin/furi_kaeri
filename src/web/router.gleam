@@ -64,7 +64,6 @@ pub fn handle_request(
 
   let user = case user_result {
     NewUser(user) -> {
-      io.print("New")
       user
     }
     ExistingUser(user) -> user
@@ -72,6 +71,8 @@ pub fn handle_request(
 
   case request.path_segments(req) {
     [] -> serve_html(user_result)
+    ["static", "css", "main.css"] ->
+      serve_static("priv/static/css/main.css", "text/css")
     ["lustre", "runtime.mjs"] -> serve_runtime()
     ["ws"] -> serve_board(req, ctx, user)
     _ -> not_found()
@@ -91,10 +92,25 @@ fn cookie_attributes() {
   )
 }
 
+fn serve_static(path: String, mime_type: String) -> Response(ResponseData) {
+  mist.send_file(path, offset: 0, limit: None)
+  |> result.map(fn(file) {
+    response.new(200)
+    |> response.prepend_header("content-type", mime_type)
+    |> response.prepend_header("cache-control", "public, max-age=3600")
+    |> response.set_body(file)
+  })
+  |> result.lazy_unwrap(fn() { not_found() })
+}
+
 fn serve_html(user_result: GetUserResult) -> Response(ResponseData) {
   let body =
     html([attribute.lang("en")], [
       html.head([], [
+        html.link([
+          attribute.rel("stylesheet"),
+          attribute.href("/static/css/main.css"),
+        ]),
         html.meta([attribute.charset("utf-8")]),
         html.meta([
           attribute.name("viewport"),

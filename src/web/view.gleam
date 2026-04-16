@@ -105,7 +105,7 @@ fn view(model: Model) -> Element(Msg) {
   let title = board.title(model.board)
   let lanes = board.lanes(model.board)
 
-  html.div([attribute.style("padding", "2rem")], [
+  html.div([attribute.class("center")], [
     html.h1([], [html.text(non_empty_string.to_string(title))]),
     html.div(
       [attribute.style("display", "flex"), attribute.style("gap", "1rem")],
@@ -119,22 +119,38 @@ fn render_lane(lane: lane.Lane) -> Element(Msg) {
   let id = lane.id(lane)
 
   html.div(
-    [attribute.style("background", "#eee"), attribute.style("padding", "1rem")],
     [
-      html.h2([], [html.text(non_empty_string.to_string(title))]),
-      html.button(
-        [
-          event.on_click(UserAddedCard(lane_id: id, content: "Woo")),
-        ],
-        [html.text("+ Add Card")],
-      ),
-      html.div([], list.map(lane.cards(lane), render_card)),
+      attribute.class("box"),
+      attribute.style("--background-color", "var(--color-bg-secondary)"),
+    ],
+    [
+      html.div([attribute.class("stack")], [
+        html.h2([], [html.text(non_empty_string.to_string(title))]),
+        html.div(
+          [attribute.class("stack")],
+          list.map(lane.cards(lane), render_card),
+        ),
+        html.button(
+          [
+            event.on_click(UserAddedCard(lane_id: id, content: "Woo")),
+          ],
+          [html.text("+ Add Card")],
+        ),
+      ]),
     ],
   )
 }
 
 fn render_card(card: card.Card) -> Element(Msg) {
-  html.div([], [html.text(non_empty_string.to_string(card.content(card)))])
+  html.div(
+    [
+      attribute.class("box"),
+      attribute.style("--background-color", "var(--color-bg-tertiary)"),
+    ],
+    [
+      html.text(non_empty_string.to_string(card.content(card))),
+    ],
+  )
 }
 
 fn subscribe(registry, msg_wrapper) -> Effect(msg) {
