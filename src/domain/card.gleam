@@ -18,6 +18,10 @@ pub opaque type Card {
   )
 }
 
+pub fn new_id() -> CardId {
+  CardId(uuid.v7())
+}
+
 pub fn id(card: Card) -> CardId {
   card.id
 }
@@ -35,12 +39,7 @@ pub fn vote_count(card: Card) -> Int {
 }
 
 pub fn new(author_id: user.UserId, content: nes.NonEmptyString) -> Card {
-  Card(
-    id: CardId(uuid.v7()),
-    author_id: author_id,
-    content: content,
-    votes: set.new(),
-  )
+  Card(id: new_id(), author_id: author_id, content: content, votes: set.new())
 }
 
 pub type EditError {

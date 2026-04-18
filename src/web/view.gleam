@@ -1,10 +1,12 @@
-import domain/board.{type Board}
+import domain/board
 import domain/card
 import domain/lane
 import domain/user
 import domain/values/non_empty_string
+import gleam/dict
 import gleam/erlang/process.{type Subject}
 import gleam/list
+import gleam/result
 import group_registry.{type GroupRegistry}
 import lustre.{type App}
 import lustre/attribute
@@ -14,10 +16,110 @@ import lustre/element/html
 import lustre/event
 import lustre/server_component
 import web/api/board as board_api
+import youid/uuid
+
+pub type CardView {
+  ShowCardView(id: card.CardId, lane_id: lane.LaneId, content: String)
+  EditCardView(id: card.CardId, lane_id: lane.LaneId, content: String)
+}
+
+pub type LaneView {
+  LaneView(id: lane.LaneId, title: String, cards: List(CardView), draft: String)
+}
+
+pub type BoardView {
+  BoardView(title: String, lanes: List(LaneView))
+}
+
+fn board_view_from_board(
+  board: board.Board,
+  cards_under_draft: CardsUnderDraft,
+  cards_under_edit: CardsUnderEdit,
+) -> BoardView {
+  BoardView(
+    title: non_empty_string.to_string(board.title(board)),
+    lanes: list.map(board.lanes(board), lane_view_from_lane(
+      _,
+      cards_under_draft,
+      cards_under_edit,
+    )),
+  )
+}
+
+fn lane_view_from_lane(
+  lane: lane.Lane,
+  cards_under_draft: CardsUnderDraft,
+  cards_under_edit: CardsUnderEdit,
+) -> LaneView {
+  let draft =
+    cards_under_draft
+    |> dict.get(lane.id(lane))
+    |> result.unwrap("")
+  LaneView(
+    id: lane.id(lane),
+    title: lane |> lane.title() |> non_empty_string.to_string(),
+    cards: list.map(lane.cards(lane), card_view_from_card(
+      lane.id(lane),
+      _,
+      cards_under_edit,
+    )),
+    draft:,
+  )
+}
+
+fn card_view_from_card(
+  lane_id: lane.LaneId,
+  card: card.Card,
+  cards_under_edit: CardsUnderEdit,
+) -> CardView {
+  cards_under_edit
+  |> dict.get(#(lane_id, card.id(card)))
+  |> result.map(fn(content) {
+    EditCardView(id: card.id(card), lane_id: lane_id, content:)
+  })
+  |> result.unwrap(ShowCardView(
+    id: card.id(card),
+    lane_id: lane_id,
+    content: non_empty_string.to_string(card.content(card)),
+  ))
+}
+
+fn update_draft(
+  cards_under_draft: CardsUnderDraft,
+  lane_id: lane.LaneId,
+  content: String,
+) -> CardsUnderDraft {
+  dict.insert(cards_under_draft, lane_id, content)
+}
+
+fn unset_edit_card(
+  cards_under_edit: CardsUnderEdit,
+  lane_id: lane.LaneId,
+  card_id: card.CardId,
+) -> CardsUnderEdit {
+  dict.delete(cards_under_edit, #(lane_id, card_id))
+}
+
+fn update_edit_card(
+  cards_under_edit: CardsUnderEdit,
+  lane_id: lane.LaneId,
+  card_id: card.CardId,
+  content: String,
+) -> CardsUnderEdit {
+  dict.insert(cards_under_edit, #(lane_id, card_id), content)
+}
+
+type CardsUnderDraft =
+  dict.Dict(lane.LaneId, String)
+
+type CardsUnderEdit =
+  dict.Dict(#(lane.LaneId, card.CardId), String)
 
 pub type Model {
   Model(
-    board: Board,
+    board: board.Board,
+    cards_under_draft: CardsUnderDraft,
+    cards_under_edit: CardsUnderEdit,
     user: user.User,
     registry: GroupRegistry(SharedMsg),
     manager: Subject(board_api.Message),
@@ -26,7 +128,17 @@ pub type Model {
 
 pub opaque type Msg {
   AppReceivedSharedMsg(SharedMsg)
+  UserUpdatedDraftCard(lane_id: lane.LaneId, content: String)
+  UserSetEditCard(lane_id: lane.LaneId, card_id: card.CardId, content: String)
+  UserUnsetEditCard(lane_id: lane.LaneId, card_id: card.CardId)
+  UserUpdatedEditCard(
+    lane_id: lane.LaneId,
+    card_id: card.CardId,
+    content: String,
+  )
+  UserEditedCard(lane_id: lane.LaneId, card_id: card.CardId, content: String)
   UserAddedCard(lane_id: lane.LaneId, content: String)
+  UserDeletedCard(lane_id: lane.LaneId, card_id: card.CardId)
   UserUpdatedBoard(board: board.Board)
   UserReceivedError(String)
 }
@@ -52,13 +164,15 @@ fn init(
   process.send(manager, board_api.GetBoard(reply_to: self))
 
   let initial_board = case process.receive(self, 1000) {
-    Ok(b) -> b
+    Ok(board) -> board
     Error(_) -> board_api.init_board()
   }
 
   let model =
     Model(
       board: initial_board,
+      cards_under_draft: dict.new(),
+      cards_under_edit: dict.new(),
       user: user,
       registry: registry,
       manager: manager,
@@ -69,6 +183,29 @@ fn init(
 
 fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
   case msg {
+    UserUpdatedBoard(updated_board) -> {
+      #(model, broadcast(model.registry, ApiReturnedBoard(updated_board)))
+    }
+    UserUpdatedDraftCard(lane_id, content) -> {
+      let cards_under_draft =
+        update_draft(model.cards_under_draft, lane_id, content)
+      #(Model(..model, cards_under_draft:), effect.none())
+    }
+    UserSetEditCard(lane_id, card_id, content) -> {
+      let cards_under_edit =
+        update_edit_card(model.cards_under_edit, lane_id, card_id, content)
+      #(Model(..model, cards_under_edit:), effect.none())
+    }
+    UserUnsetEditCard(lane_id, card_id) -> {
+      let cards_under_edit =
+        unset_edit_card(model.cards_under_edit, lane_id, card_id)
+      #(Model(..model, cards_under_edit:), effect.none())
+    }
+    UserUpdatedEditCard(lane_id, card_id, content) -> {
+      let cards_under_edit =
+        update_edit_card(model.cards_under_edit, lane_id, card_id, content)
+      #(Model(..model, cards_under_edit:), effect.none())
+    }
     UserAddedCard(lane_id, content) -> {
       let effect =
         effect.from(fn(dispatch) {
@@ -86,10 +223,49 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
             Error(error) -> dispatch(UserReceivedError(error))
           }
         })
-      #(model, effect)
+      let cards_under_draft = update_draft(model.cards_under_draft, lane_id, "")
+      #(Model(..model, cards_under_draft:), effect)
     }
-    UserUpdatedBoard(updated_board) -> {
-      #(model, broadcast(model.registry, ApiReturnedBoard(updated_board)))
+    UserEditedCard(lane_id, card_id, content) -> {
+      let effect =
+        effect.from(fn(dispatch) {
+          let result =
+            process.call(model.manager, 1000, fn(reply_to) {
+              board_api.EditCard(
+                user_id: user.id(model.user),
+                lane_id: lane_id,
+                card_id: card_id,
+                content: content,
+                reply_to: reply_to,
+              )
+            })
+          case result {
+            Ok(updated_board) -> dispatch(UserUpdatedBoard(updated_board))
+            Error(error) -> dispatch(UserReceivedError(error))
+          }
+        })
+      let cards_under_edit =
+        unset_edit_card(model.cards_under_edit, lane_id, card_id)
+      #(Model(..model, cards_under_edit:), effect)
+    }
+    UserDeletedCard(lane_id, card_id) -> {
+      let effect =
+        effect.from(fn(dispatch) {
+          let result =
+            process.call(model.manager, 1000, fn(reply_to) {
+              board_api.RemoveCard(
+                user_id: user.id(model.user),
+                lane_id: lane_id,
+                card_id: card_id,
+                reply_to: reply_to,
+              )
+            })
+          case result {
+            Ok(updated_board) -> dispatch(UserUpdatedBoard(updated_board))
+            Error(error) -> dispatch(UserReceivedError(error))
+          }
+        })
+      #(model, effect)
     }
     UserReceivedError(_) -> {
       // todo: handle error
@@ -102,55 +278,166 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 }
 
 fn view(model: Model) -> Element(Msg) {
-  let title = board.title(model.board)
-  let lanes = board.lanes(model.board)
-
+  let board_view =
+    board_view_from_board(
+      model.board,
+      model.cards_under_draft,
+      model.cards_under_edit,
+    )
   html.div([attribute.class("center")], [
-    html.h1([], [html.text(non_empty_string.to_string(title))]),
+    html.h1([], [html.text(board_view.title)]),
     html.div(
       [attribute.style("display", "flex"), attribute.style("gap", "1rem")],
-      list.map(lanes, render_lane),
+      list.map(board_view.lanes, render_lane),
     ),
   ])
 }
 
-fn render_lane(lane: lane.Lane) -> Element(Msg) {
-  let title = lane.title(lane)
-  let id = lane.id(lane)
-
+fn render_lane(lane: LaneView) -> Element(Msg) {
   html.div(
     [
-      attribute.class("box"),
       attribute.style("--background-color", "var(--color-bg-secondary)"),
     ],
     [
       html.div([attribute.class("stack")], [
-        html.h2([], [html.text(non_empty_string.to_string(title))]),
-        html.div(
-          [attribute.class("stack")],
-          list.map(lane.cards(lane), render_card),
-        ),
-        html.button(
-          [
-            event.on_click(UserAddedCard(lane_id: id, content: "Woo")),
-          ],
-          [html.text("+ Add Card")],
+        html.h2([], [html.text(lane.title)]),
+        render_add_card(lane.id, lane.draft),
+        maybe_render(
+          html.div(
+            [attribute.class("stack")],
+            list.map(lane.cards, render_card),
+          ),
+          lane.cards != [],
         ),
       ]),
     ],
   )
 }
 
-fn render_card(card: card.Card) -> Element(Msg) {
-  html.div(
+fn maybe_render(element: Element(a), bool: Bool) -> Element(a) {
+  case bool {
+    True -> element
+    False -> element.none()
+  }
+}
+
+fn render_add_card(lane_id: lane.LaneId, draft: String) {
+  let lane.LaneId(lane_id_as_uuid) = lane_id
+  let lane_id_as_string = uuid.to_string(lane_id_as_uuid)
+
+  html.form(
     [
-      attribute.class("box"),
-      attribute.style("--background-color", "var(--color-bg-tertiary)"),
+      attribute.class("card"),
+      event.on_submit(fn(_) { UserAddedCard(lane_id, content: draft) }),
     ],
     [
-      html.text(non_empty_string.to_string(card.content(card))),
+      html.textarea(
+        [
+          attribute.id(lane_id_as_string <> "draft"),
+          attribute.aria_label("Draft Card"),
+          event.debounce(
+            event.on_input(fn(content) {
+              UserUpdatedDraftCard(lane_id:, content:)
+            }),
+            200,
+          ),
+          attribute.placeholder("Add a card..."),
+          attribute.rows(3),
+        ],
+        draft,
+      ),
+      html.div([attribute.class("card__actions")], [
+        html.button(
+          [
+            attribute.class("button"),
+            attribute.type_("submit"),
+          ],
+          [html.text("Submit")],
+        ),
+      ]),
     ],
   )
+}
+
+fn render_card(card: CardView) -> Element(Msg) {
+  let lane.LaneId(lane_id_as_uuid) = card.lane_id
+  let lane_id_as_string = uuid.to_string(lane_id_as_uuid)
+  case card {
+    ShowCardView(..) ->
+      html.div([attribute.class("card")], [
+        html.div([], [html.text(card.content)]),
+        html.div([attribute.class("card__actions")], [
+          html.button(
+            [
+              attribute.class("button"),
+              attribute.class("card__edit"),
+              event.on_click(UserSetEditCard(
+                card.lane_id,
+                card.id,
+                card.content,
+              )),
+            ],
+            [
+              html.text("Edit"),
+            ],
+          ),
+          html.button(
+            [
+              attribute.class("button"),
+              attribute.data("type", "delete"),
+              event.on_click(UserDeletedCard(card.lane_id, card.id)),
+            ],
+            [
+              html.text("Delete"),
+            ],
+          ),
+        ]),
+      ])
+    EditCardView(..) -> {
+      html.form(
+        [
+          attribute.class("card"),
+          event.on_submit(fn(_) {
+            UserEditedCard(
+              lane_id: card.lane_id,
+              card_id: card.id,
+              content: card.content,
+            )
+          }),
+        ],
+        [
+          html.textarea(
+            [
+              attribute.id(lane_id_as_string <> "edit"),
+              attribute.aria_label("Edit Card"),
+              event.debounce(
+                event.on_input(fn(content) {
+                  UserUpdatedEditCard(
+                    lane_id: card.lane_id,
+                    card_id: card.id,
+                    content:,
+                  )
+                }),
+                200,
+              ),
+              attribute.placeholder("Edit card.."),
+              attribute.rows(3),
+            ],
+            card.content,
+          ),
+          html.div([attribute.class("card__actions")], [
+            html.button(
+              [
+                attribute.class("button"),
+                attribute.type_("submit"),
+              ],
+              [html.text("Edit")],
+            ),
+          ]),
+        ],
+      )
+    }
+  }
 }
 
 fn subscribe(registry, msg_wrapper) -> Effect(msg) {

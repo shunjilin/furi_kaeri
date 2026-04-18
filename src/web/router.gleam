@@ -5,7 +5,6 @@ import gleam/erlang/process.{type Subject}
 import gleam/http/cookie
 import gleam/http/request.{type Request}
 import gleam/http/response.{type Response}
-import gleam/io
 import gleam/json
 import gleam/list
 import gleam/option.{None, Some}

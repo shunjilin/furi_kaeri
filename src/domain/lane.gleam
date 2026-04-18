@@ -30,7 +30,7 @@ pub fn cards(lane: Lane) -> List(card.Card) {
 }
 
 pub fn add_card(lane: Lane, card: card.Card) {
-  Lane(..lane, cards: list.prepend(lane.cards, card))
+  Lane(..lane, cards: list.append(lane.cards, [card]))
 }
 
 pub type UpdateCardError(e) {

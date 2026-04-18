@@ -17,6 +17,19 @@ pub type Message {
     content: String,
     reply_to: Subject(Result(board.Board, String)),
   )
+  EditCard(
+    user_id: user.UserId,
+    lane_id: lane.LaneId,
+    card_id: card.CardId,
+    content: String,
+    reply_to: Subject(Result(board.Board, String)),
+  )
+  RemoveCard(
+    user_id: user.UserId,
+    lane_id: lane.LaneId,
+    card_id: card.CardId,
+    reply_to: Subject(Result(board.Board, String)),
+  )
   Vote(
     user_id: user.UserId,
     lane_id: lane.LaneId,
@@ -52,6 +65,14 @@ fn handle_message(
       do_add_card(board, user_id, lane_id, content)
       |> respond(board, reply_to)
     }
+    EditCard(user_id, lane_id, card_id, content, reply_to) -> {
+      do_edit_card(board, user_id, lane_id, card_id, content)
+      |> respond(board, reply_to)
+    }
+    RemoveCard(user_id, lane_id, card_id, reply_to) -> {
+      do_remove_card(board, user_id, lane_id, card_id)
+      |> respond(board, reply_to)
+    }
     Vote(user_id, lane_id, card_id, reply_to) -> {
       do_vote(board, user_id, lane_id, card_id)
       |> respond(board, reply_to)
@@ -85,6 +106,47 @@ fn do_add_card(
   board
   |> board.update_lane(lane_id, fn(lane) { Ok(lane.add_card(lane, card)) })
   |> map_lane_error(function.identity)
+}
+
+fn do_edit_card(
+  board: board.Board,
+  user_id: user.UserId,
+  lane_id: lane.LaneId,
+  card_id: card.CardId,
+  content: String,
+) -> Result(board.Board, String) {
+  use validated_content <- result.try(
+    content
+    |> non_empty_string.new()
+    |> result.replace_error("Invalid content."),
+  )
+
+  update_card_in_board(board, lane_id, card_id, fn(card) {
+    card.edit(card, user_id, validated_content, board.phase(board))
+  })
+  |> map_card_error(fn(error) {
+    case error {
+      card.EditNotAuthor -> "Can only edit as author."
+      card.EditNotDraft -> "Can only edit in draft phase."
+    }
+  })
+}
+
+fn do_remove_card(
+  board: board.Board,
+  user_id: user.UserId,
+  lane_id: lane.LaneId,
+  card_id: card.CardId,
+) -> Result(board.Board, String) {
+  board.update_lane(board, lane_id, fn(lane) {
+    lane.remove_card(lane, card_id, user_id)
+  })
+  |> map_lane_error(fn(error) {
+    case error {
+      lane.CardToRemoveNotFound -> "Card does not exist."
+      lane.NotAuthorOfCardToRemove -> "Can only remove as author."
+    }
+  })
 }
 
 fn do_vote(

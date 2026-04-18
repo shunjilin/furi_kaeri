@@ -105,16 +105,28 @@ h6 {
     --space-4: 1rem;
     --space-8: 2rem;
 
+    --color-text: #000000;
+    --color-text-inverse: #ffffff;
+
     --color-bg: #c4ddf6;
     --color-bg-secondary: #e7dcdc;
     --color-bg-tertiary: #edf3d8;
 
+    --color-primary: #1d4980;
+    --color-secondary: #dedbdbce;
+    --color-alert: #bd1d3d;
+
     --color-border: #202327;
     --border-thin: 1px solid;
+    --border-radius: 4px;
+
+    --box-padding: var(--space-4);
+    --card-width: 200px;
+    --border-width: 2px;
 }
 
 body {
-    font-family: var(--font-sans);
+    font-family: var(--font-accent);
     font-size: var(--text-base);
     line-height: var(--leading-normal);
     color: var(--color-text);
@@ -147,10 +159,10 @@ h2 {
 }
 
 .box {
-    padding: var(--padding, var(--space-4));
+    padding: var(--padding, var(--box-padding));
     border-color: var(--color-border);
     border-style: solid;
-    border-width: var(--border-width, 2px);
+    border-width: var(--border-width);
     background-color: var(--background-color, var(--color-bg-surface));
 }
 
@@ -165,3 +177,42 @@ h2 {
 /* 
     Custom Components
 */
+.card {
+    width: var(--card-width);
+    padding: var(--space-2);
+    border-color: var(--color-border);
+    border-style: solid;
+    border-width: var(--border-width);
+    background-color: var(--color-bg-secondary);
+    height: 100%;
+    white-space: pre;
+}
+
+.card__actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-1);
+}
+
+button.button {
+    cursor: pointer;
+    border: var(--border-width) solid var(--color-text-inverse);
+    border-radius: var(--border-radius);
+    background-color: var(--color-secondary);
+}
+
+
+button.button[type="submit"] {
+    background-color: var(--color-primary);
+    color: var(--color-text-inverse);
+}
+
+button.button[data-type="delete"] {
+    background-color: var(--color-alert);
+    color: var(--color-text-inverse);
+}
+
+textarea {
+    width: 100%;
+    resize: none;
+}
