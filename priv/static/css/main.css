@@ -113,7 +113,7 @@ h6 {
     --color-bg-tertiary: #edf3d8;
 
     --color-primary: #1d4980;
-    --color-secondary: #dedbdbce;
+    --color-secondary: #ffc187ce;
     --color-alert: #bd1d3d;
 
     --color-border: #202327;
@@ -177,6 +177,12 @@ h2 {
 /* 
     Custom Components
 */
+.heading {
+    display: flex;
+    justify-content: space-between;
+    padding-block: var(--box-padding);
+}
+
 .card {
     width: var(--card-width);
     padding: var(--space-2);
@@ -196,7 +202,7 @@ h2 {
 
 button.button {
     cursor: pointer;
-    border: var(--border-width) solid var(--color-text-inverse);
+    border: var(--border-width) solid var(--color-border);
     border-radius: var(--border-radius);
     background-color: var(--color-secondary);
 }

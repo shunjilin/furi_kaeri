@@ -42,6 +42,7 @@ pub type Message {
     card_id: card.CardId,
     reply_to: Subject(Result(board.Board, String)),
   )
+  RevealBoard(reply_to: Subject(Result(board.Board, String)))
 }
 
 pub fn start_link() -> Result(actor.Started(Subject(Message)), actor.StartError) {
@@ -79,6 +80,10 @@ fn handle_message(
     }
     RemoveVote(user_id, lane_id, card_id, reply_to) -> {
       do_remove_vote(board, user_id, lane_id, card_id)
+      |> respond(board, reply_to)
+    }
+    RevealBoard(reply_to) -> {
+      do_reveal_board(board)
       |> respond(board, reply_to)
     }
   }
@@ -183,6 +188,16 @@ fn do_remove_vote(
     case error {
       card.RemoveVoteNotFound -> "No vote found."
       card.RemoveVoteNotReviewPhase -> "Can only remove vote in review phase."
+    }
+  })
+}
+
+fn do_reveal_board(board: board.Board) -> Result(board.Board, String) {
+  board
+  |> board.reveal_board()
+  |> result.map_error(fn(error) {
+    case error {
+      board.RevealBoardAlreadyInReview -> "Board is already in review."
     }
   })
 }

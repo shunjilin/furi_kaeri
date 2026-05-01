@@ -26,3 +26,10 @@ pub fn authorize_phase(
     }
   }
 }
+
+pub fn to_string(phase: Phase) -> String {
+  case phase {
+    Draft -> "Draft"
+    Review -> "Review"
+  }
+}

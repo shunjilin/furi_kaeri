@@ -1,6 +1,7 @@
 import domain/board
 import domain/card
 import domain/lane
+import domain/phase
 import domain/user
 import domain/values/non_empty_string
 import gleam/dict
@@ -139,6 +140,7 @@ pub opaque type Msg {
   UserEditedCard(lane_id: lane.LaneId, card_id: card.CardId, content: String)
   UserAddedCard(lane_id: lane.LaneId, content: String)
   UserDeletedCard(lane_id: lane.LaneId, card_id: card.CardId)
+  UserRevealedBoard
   UserUpdatedBoard(board: board.Board)
   UserReceivedError(String)
 }
@@ -267,6 +269,21 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         })
       #(model, effect)
     }
+    UserRevealedBoard -> {
+      let effect =
+        effect.from(fn(dispatch) {
+          let result =
+            process.call(model.manager, 1000, fn(reply_to) {
+              board_api.RevealBoard(reply_to: reply_to)
+            })
+          case result {
+            Ok(updated_board) -> dispatch(UserUpdatedBoard(updated_board))
+            Error(error) -> dispatch(UserReceivedError(error))
+          }
+        })
+
+      #(model, effect)
+    }
     UserReceivedError(_) -> {
       // todo: handle error
       #(model, effect.none())
@@ -284,16 +301,31 @@ fn view(model: Model) -> Element(Msg) {
       model.cards_under_draft,
       model.cards_under_edit,
     )
+
+  let phase = board.phase(model.board)
   html.div([attribute.class("center")], [
-    html.h1([], [html.text(board_view.title)]),
+    html.div([attribute.class("heading")], [
+      html.h1([], [html.text(board_view.title)]),
+      maybe_render(
+        html.button(
+          [
+            attribute.class("button"),
+            attribute.data("confirm", "Are you ready to reveal the board?"),
+            event.on_click(UserRevealedBoard),
+          ],
+          [html.text("Reveal Board")],
+        ),
+        phase == phase.Draft,
+      ),
+    ]),
     html.div(
       [attribute.style("display", "flex"), attribute.style("gap", "1rem")],
-      list.map(board_view.lanes, render_lane),
+      list.map(board_view.lanes, render_lane(_, phase)),
     ),
   ])
 }
 
-fn render_lane(lane: LaneView) -> Element(Msg) {
+fn render_lane(lane: LaneView, phase: phase.Phase) -> Element(Msg) {
   html.div(
     [
       attribute.style("--background-color", "var(--color-bg-secondary)"),
@@ -301,11 +333,11 @@ fn render_lane(lane: LaneView) -> Element(Msg) {
     [
       html.div([attribute.class("stack")], [
         html.h2([], [html.text(lane.title)]),
-        render_add_card(lane.id, lane.draft),
+        maybe_render(render_add_card(lane.id, lane.draft), phase == phase.Draft),
         maybe_render(
           html.div(
             [attribute.class("stack")],
-            list.map(lane.cards, render_card),
+            list.map(lane.cards, render_card(_, phase)),
           ),
           lane.cards != [],
         ),
@@ -360,43 +392,46 @@ fn render_add_card(lane_id: lane.LaneId, draft: String) {
   )
 }
 
-fn render_card(card: CardView) -> Element(Msg) {
+fn render_card(card: CardView, phase: phase.Phase) -> Element(Msg) {
   let lane.LaneId(lane_id_as_uuid) = card.lane_id
   let lane_id_as_string = uuid.to_string(lane_id_as_uuid)
   case card {
     ShowCardView(..) ->
       html.div([attribute.class("card")], [
         html.div([], [html.text(card.content)]),
-        html.div([attribute.class("card__actions")], [
-          html.button(
-            [
-              attribute.class("button"),
-              attribute.class("card__edit"),
-              event.on_click(UserSetEditCard(
-                card.lane_id,
-                card.id,
-                card.content,
-              )),
-            ],
-            [
-              html.text("Edit"),
-            ],
-          ),
-          html.button(
-            [
-              attribute.class("button"),
-              attribute.data("type", "delete"),
-              attribute.data(
-                "confirm",
-                "Are you sure you want to delete this card?",
-              ),
-              event.on_click(UserDeletedCard(card.lane_id, card.id)),
-            ],
-            [
-              html.text("Delete"),
-            ],
-          ),
-        ]),
+        maybe_render(
+          html.div([attribute.class("card__actions")], [
+            html.button(
+              [
+                attribute.class("button"),
+                attribute.class("card__edit"),
+                event.on_click(UserSetEditCard(
+                  card.lane_id,
+                  card.id,
+                  card.content,
+                )),
+              ],
+              [
+                html.text("Edit"),
+              ],
+            ),
+            html.button(
+              [
+                attribute.class("button"),
+                attribute.data("type", "delete"),
+                attribute.data(
+                  "confirm",
+                  "Are you sure you want to delete this card?",
+                ),
+                event.on_click(UserDeletedCard(card.lane_id, card.id)),
+              ],
+              [
+                html.text("Delete"),
+              ],
+            ),
+          ]),
+          phase == phase.Draft,
+        ),
       ])
     EditCardView(..) -> {
       html.form(
