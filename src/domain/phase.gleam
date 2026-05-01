@@ -1,11 +1,3 @@
-pub type Drafting {
-  Drafting
-}
-
-pub type Reviewing {
-  Reviewing
-}
-
 pub type Phase {
   Draft
   Review
