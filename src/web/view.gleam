@@ -6,6 +6,7 @@ import domain/user
 import domain/values/non_empty_string
 import gleam/dict
 import gleam/erlang/process.{type Subject}
+import gleam/int
 import gleam/list
 import gleam/result
 import group_registry.{type GroupRegistry}
@@ -20,7 +21,13 @@ import web/api/board as board_api
 import youid/uuid
 
 pub type CardView {
-  ShowCardView(id: card.CardId, lane_id: lane.LaneId, content: String)
+  ShowCardView(
+    id: card.CardId,
+    lane_id: lane.LaneId,
+    content: String,
+    vote_count: Int,
+    voted: Bool,
+  )
   EditCardView(id: card.CardId, lane_id: lane.LaneId, content: String)
 }
 
@@ -33,6 +40,7 @@ pub type BoardView {
 }
 
 fn board_view_from_board(
+  user_id: user.UserId,
   board: board.Board,
   cards_under_draft: CardsUnderDraft,
   cards_under_edit: CardsUnderEdit,
@@ -40,6 +48,7 @@ fn board_view_from_board(
   BoardView(
     title: non_empty_string.to_string(board.title(board)),
     lanes: list.map(board.lanes(board), lane_view_from_lane(
+      user_id,
       _,
       cards_under_draft,
       cards_under_edit,
@@ -48,6 +57,7 @@ fn board_view_from_board(
 }
 
 fn lane_view_from_lane(
+  user_id: user.UserId,
   lane: lane.Lane,
   cards_under_draft: CardsUnderDraft,
   cards_under_edit: CardsUnderEdit,
@@ -60,6 +70,7 @@ fn lane_view_from_lane(
     id: lane.id(lane),
     title: lane |> lane.title() |> non_empty_string.to_string(),
     cards: list.map(lane.cards(lane), card_view_from_card(
+      user_id,
       lane.id(lane),
       _,
       cards_under_edit,
@@ -69,6 +80,7 @@ fn lane_view_from_lane(
 }
 
 fn card_view_from_card(
+  user_id: user.UserId,
   lane_id: lane.LaneId,
   card: card.Card,
   cards_under_edit: CardsUnderEdit,
@@ -82,6 +94,8 @@ fn card_view_from_card(
     id: card.id(card),
     lane_id: lane_id,
     content: non_empty_string.to_string(card.content(card)),
+    vote_count: card.vote_count(card),
+    voted: card.voted(card, user_id),
   ))
 }
 
@@ -141,6 +155,8 @@ pub opaque type Msg {
   UserAddedCard(lane_id: lane.LaneId, content: String)
   UserDeletedCard(lane_id: lane.LaneId, card_id: card.CardId)
   UserRevealedBoard
+  UserAddedCardVote(lane_id: lane.LaneId, card_id: card.CardId)
+  UserRemovedCardVote(lane_id: lane.LaneId, card_id: card.CardId)
   UserUpdatedBoard(board: board.Board)
   UserReceivedError(String)
 }
@@ -284,6 +300,46 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
       #(model, effect)
     }
+    UserAddedCardVote(lane_id, card_id) -> {
+      let effect =
+        effect.from(fn(dispatch) {
+          let result =
+            process.call(model.manager, 1000, fn(reply_to) {
+              board_api.Vote(
+                user.id(model.user),
+                lane_id,
+                card_id,
+                reply_to: reply_to,
+              )
+            })
+          case result {
+            Ok(updated_board) -> dispatch(UserUpdatedBoard(updated_board))
+            Error(error) -> dispatch(UserReceivedError(error))
+          }
+        })
+
+      #(model, effect)
+    }
+    UserRemovedCardVote(lane_id, card_id) -> {
+      let effect =
+        effect.from(fn(dispatch) {
+          let result =
+            process.call(model.manager, 1000, fn(reply_to) {
+              board_api.RemoveVote(
+                user.id(model.user),
+                lane_id,
+                card_id,
+                reply_to: reply_to,
+              )
+            })
+          case result {
+            Ok(updated_board) -> dispatch(UserUpdatedBoard(updated_board))
+            Error(error) -> dispatch(UserReceivedError(error))
+          }
+        })
+
+      #(model, effect)
+    }
     UserReceivedError(_) -> {
       // todo: handle error
       #(model, effect.none())
@@ -297,6 +353,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 fn view(model: Model) -> Element(Msg) {
   let board_view =
     board_view_from_board(
+      user.id(model.user),
       model.board,
       model.cards_under_draft,
       model.cards_under_edit,
@@ -431,6 +488,38 @@ fn render_card(card: CardView, phase: phase.Phase) -> Element(Msg) {
             ),
           ]),
           phase == phase.Draft,
+        ),
+        maybe_render(
+          html.div([attribute.class("card__actions")], [
+            html.div([], [html.text(int.to_string(card.vote_count))]),
+            maybe_render(
+              html.button(
+                [
+                  attribute.class("button"),
+                  attribute.class("vote"),
+                  event.on_click(UserAddedCardVote(card.lane_id, card.id)),
+                ],
+                [
+                  html.text("Vote"),
+                ],
+              ),
+              !card.voted,
+            ),
+            maybe_render(
+              html.button(
+                [
+                  attribute.class("button"),
+                  attribute.class("vote"),
+                  event.on_click(UserRemovedCardVote(card.lane_id, card.id)),
+                ],
+                [
+                  html.text("Remove Vote"),
+                ],
+              ),
+              card.voted,
+            ),
+          ]),
+          phase == phase.Voting,
         ),
       ])
     EditCardView(..) -> {

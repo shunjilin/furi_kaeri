@@ -2,6 +2,7 @@ import domain/card
 import domain/phase
 import domain/user
 import domain/values/non_empty_string as nes
+import domain/vote
 import gleeunit/should
 import helpers/factories as f
 
@@ -40,13 +41,29 @@ pub fn edit_not_author_test() {
 pub fn vote_test() {
   let card = f.card()
   let phase = phase.Voting
+  let vote_1 = f.vote()
+  let vote_2 = f.vote()
+  let card =
+    card
+    |> card.vote(vote_1, phase)
+    |> should.be_ok
+    |> card.vote(vote_2, phase)
+    |> should.be_ok
+
   card
-  |> card.vote(f.vote(), phase)
-  |> should.be_ok
-  |> card.vote(f.vote(), phase)
-  |> should.be_ok
   |> card.vote_count()
   |> should.equal(2)
+
+  let vote.Vote(user_id_1) = vote_1
+  let vote.Vote(user_id_2) = vote_1
+
+  card
+  |> card.voted(user_id_1)
+  |> should.be_true()
+
+  card
+  |> card.voted(user_id_2)
+  |> should.be_true()
 }
 
 pub fn vote_already_voted_test() {
@@ -77,13 +94,21 @@ pub fn remove_vote_test() {
   let card = f.card()
   let vote = f.vote()
   let phase = phase.Voting
+  let card =
+    card
+    |> card.vote(vote, phase)
+    |> should.be_ok
+    |> card.remove_vote(vote, phase)
+    |> should.be_ok
+
   card
-  |> card.vote(vote, phase)
-  |> should.be_ok
-  |> card.remove_vote(vote, phase)
-  |> should.be_ok
   |> card.vote_count()
   |> should.equal(0)
+
+  let vote.Vote(user_id) = vote
+  card
+  |> card.voted(user_id)
+  |> should.be_false()
 }
 
 pub fn remove_vote_not_found_test() {

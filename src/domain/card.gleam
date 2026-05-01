@@ -38,6 +38,10 @@ pub fn vote_count(card: Card) -> Int {
   set.size(card.votes)
 }
 
+pub fn voted(card: Card, user_id: user.UserId) -> Bool {
+  set.contains(card.votes, vote.Vote(user_id))
+}
+
 pub fn new(author_id: user.UserId, content: nes.NonEmptyString) -> Card {
   Card(id: new_id(), author_id: author_id, content: content, votes: set.new())
 }
