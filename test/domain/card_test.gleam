@@ -39,7 +39,7 @@ pub fn edit_not_author_test() {
 
 pub fn vote_test() {
   let card = f.card()
-  let phase = phase.Review
+  let phase = phase.Voting
   card
   |> card.vote(f.vote(), phase)
   |> should.be_ok
@@ -52,7 +52,7 @@ pub fn vote_test() {
 pub fn vote_already_voted_test() {
   let card = f.card()
   let vote = f.vote()
-  let phase = phase.Review
+  let phase = phase.Voting
 
   card
   |> card.vote(vote, phase)
@@ -76,7 +76,7 @@ pub fn cannot_vote_when_draft_test() {
 pub fn remove_vote_test() {
   let card = f.card()
   let vote = f.vote()
-  let phase = phase.Review
+  let phase = phase.Voting
   card
   |> card.vote(vote, phase)
   |> should.be_ok
@@ -88,7 +88,7 @@ pub fn remove_vote_test() {
 
 pub fn remove_vote_not_found_test() {
   let card = f.card()
-  let phase = phase.Review
+  let phase = phase.Voting
 
   card
   |> card.vote(f.vote(), phase)
@@ -103,7 +103,7 @@ pub fn cannot_remove_vote_when_draft_test() {
   let vote = f.vote()
 
   card
-  |> card.vote(vote, phase.Review)
+  |> card.vote(vote, phase.Voting)
   |> should.be_ok
   |> card.remove_vote(vote, phase.Draft)
   |> should.be_error

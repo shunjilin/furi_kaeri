@@ -83,7 +83,7 @@ pub fn vote(
 ) -> Result(Card, VoteError) {
   use <- phase.authorize_phase(
     current: phase,
-    allowed: phase.Review,
+    allowed: phase.Voting,
     error: VoteNotReviewPhase,
   )
   case set.contains(card.votes, vote) {
@@ -99,7 +99,7 @@ pub fn remove_vote(
 ) -> Result(Card, RemoveVoteError) {
   use <- phase.authorize_phase(
     current: phase,
-    allowed: phase.Review,
+    allowed: phase.Voting,
     error: RemoveVoteNotReviewPhase,
   )
   case set.contains(card.votes, vote) {

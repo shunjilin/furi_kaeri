@@ -1,6 +1,6 @@
 pub type Phase {
   Draft
-  Review
+  Voting
 }
 
 pub fn authorize_phase(
@@ -22,6 +22,6 @@ pub fn authorize_phase(
 pub fn to_string(phase: Phase) -> String {
   case phase {
     Draft -> "Draft"
-    Review -> "Review"
+    Voting -> "Voting"
   }
 }

@@ -42,7 +42,7 @@ pub type RevealError {
 
 pub fn reveal_board(board: Board) -> Result(Board, RevealError) {
   use <- bool.guard(
-    when: board.phase == phase.Review,
+    when: board.phase != phase.Draft,
     return: Error(RevealBoardAlreadyRevealed),
   )
 
@@ -53,7 +53,7 @@ pub fn reveal_board(board: Board) -> Result(Board, RevealError) {
     return: Error(RevealBoardNoCardsToReveal),
   )
 
-  Ok(Board(..board, phase: phase.Review))
+  Ok(Board(..board, phase: phase.Voting))
 }
 
 pub type UpdateLaneError(e) {
