@@ -72,6 +72,8 @@ pub fn handle_request(
     [] -> serve_html(user_result)
     ["static", "css", "main.css"] ->
       serve_static("priv/static/css/main.css", "text/css")
+    ["static", "js", "client.mjs"] ->
+      serve_static("priv/static/js/client.mjs", "text/javascript")
     ["lustre", "runtime.mjs"] -> serve_runtime()
     ["ws"] -> serve_board(req, ctx, user)
     _ -> not_found()
@@ -118,6 +120,10 @@ fn serve_html(user_result: GetUserResult) -> Response(ResponseData) {
         html.title([], "Furi Kaeri"),
         html.script(
           [attribute.type_("module"), attribute.src("/lustre/runtime.mjs")],
+          "",
+        ),
+        html.script(
+          [attribute.type_("module"), attribute.src("/static/js/client.mjs")],
           "",
         ),
       ]),

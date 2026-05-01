@@ -386,6 +386,10 @@ fn render_card(card: CardView) -> Element(Msg) {
             [
               attribute.class("button"),
               attribute.data("type", "delete"),
+              attribute.data(
+                "confirm",
+                "Are you sure you want to delete this card?",
+              ),
               event.on_click(UserDeletedCard(card.lane_id, card.id)),
             ],
             [
