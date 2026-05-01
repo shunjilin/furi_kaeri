@@ -4,6 +4,7 @@ import domain/lane
 import domain/phase
 import domain/user
 import domain/values/non_empty_string
+import gleam/bool
 import gleam/dict
 import gleam/erlang/process.{type Subject}
 import gleam/int
@@ -21,14 +22,15 @@ import web/api/board as board_api
 import youid/uuid
 
 pub type CardView {
-  ShowCardView(
+  ShowCardView(id: card.CardId, lane_id: lane.LaneId, content: String)
+  EditCardView(id: card.CardId, lane_id: lane.LaneId, content: String)
+  VotingCardView(
     id: card.CardId,
     lane_id: lane.LaneId,
     content: String,
     vote_count: Int,
     voted: Bool,
   )
-  EditCardView(id: card.CardId, lane_id: lane.LaneId, content: String)
 }
 
 pub type LaneView {
@@ -44,6 +46,7 @@ fn board_view_from_board(
   board: board.Board,
   cards_under_draft: CardsUnderDraft,
   cards_under_edit: CardsUnderEdit,
+  phase: phase.Phase,
 ) -> BoardView {
   BoardView(
     title: non_empty_string.to_string(board.title(board)),
@@ -52,6 +55,7 @@ fn board_view_from_board(
       _,
       cards_under_draft,
       cards_under_edit,
+      phase,
     )),
   )
 }
@@ -61,6 +65,7 @@ fn lane_view_from_lane(
   lane: lane.Lane,
   cards_under_draft: CardsUnderDraft,
   cards_under_edit: CardsUnderEdit,
+  phase: phase.Phase,
 ) -> LaneView {
   let draft =
     cards_under_draft
@@ -74,6 +79,7 @@ fn lane_view_from_lane(
       lane.id(lane),
       _,
       cards_under_edit,
+      phase,
     )),
     draft:,
   )
@@ -84,7 +90,18 @@ fn card_view_from_card(
   lane_id: lane.LaneId,
   card: card.Card,
   cards_under_edit: CardsUnderEdit,
+  phase: phase.Phase,
 ) -> CardView {
+  use <- bool.guard(
+    when: phase == phase.Voting,
+    return: VotingCardView(
+      id: card.id(card),
+      lane_id: lane_id,
+      content: non_empty_string.to_string(card.content(card)),
+      vote_count: card.vote_count(card),
+      voted: card.voted(card, user_id),
+    ),
+  )
   cards_under_edit
   |> dict.get(#(lane_id, card.id(card)))
   |> result.map(fn(content) {
@@ -94,8 +111,6 @@ fn card_view_from_card(
     id: card.id(card),
     lane_id: lane_id,
     content: non_empty_string.to_string(card.content(card)),
-    vote_count: card.vote_count(card),
-    voted: card.voted(card, user_id),
   ))
 }
 
@@ -351,15 +366,16 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 }
 
 fn view(model: Model) -> Element(Msg) {
+  let phase = board.phase(model.board)
   let board_view =
     board_view_from_board(
       user.id(model.user),
       model.board,
       model.cards_under_draft,
       model.cards_under_edit,
+      phase,
     )
 
-  let phase = board.phase(model.board)
   html.div([attribute.class("center")], [
     html.div([attribute.class("heading")], [
       html.h1([], [html.text(board_view.title)]),
@@ -394,7 +410,7 @@ fn render_lane(lane: LaneView, phase: phase.Phase) -> Element(Msg) {
         maybe_render(
           html.div(
             [attribute.class("stack")],
-            list.map(lane.cards, render_card(_, phase)),
+            list.map(lane.cards, render_card),
           ),
           lane.cards != [],
         ),
@@ -449,78 +465,76 @@ fn render_add_card(lane_id: lane.LaneId, draft: String) {
   )
 }
 
-fn render_card(card: CardView, phase: phase.Phase) -> Element(Msg) {
+fn render_card(card: CardView) -> Element(Msg) {
   let lane.LaneId(lane_id_as_uuid) = card.lane_id
   let lane_id_as_string = uuid.to_string(lane_id_as_uuid)
   case card {
+    VotingCardView(..) ->
+      html.div([attribute.class("card")], [
+        html.div([], [html.text(card.content)]),
+        html.div([attribute.class("card__actions")], [
+          html.div([], [html.text(int.to_string(card.vote_count))]),
+          maybe_render(
+            html.button(
+              [
+                attribute.class("button"),
+                attribute.class("vote"),
+                event.on_click(UserAddedCardVote(card.lane_id, card.id)),
+              ],
+              [
+                html.text("Vote"),
+              ],
+            ),
+            !card.voted,
+          ),
+          maybe_render(
+            html.button(
+              [
+                attribute.class("button"),
+                attribute.class("vote"),
+                event.on_click(UserRemovedCardVote(card.lane_id, card.id)),
+              ],
+              [
+                html.text("Remove Vote"),
+              ],
+            ),
+            card.voted,
+          ),
+        ]),
+      ])
     ShowCardView(..) ->
       html.div([attribute.class("card")], [
         html.div([], [html.text(card.content)]),
-        maybe_render(
-          html.div([attribute.class("card__actions")], [
-            html.button(
-              [
-                attribute.class("button"),
-                attribute.class("card__edit"),
-                event.on_click(UserSetEditCard(
-                  card.lane_id,
-                  card.id,
-                  card.content,
-                )),
-              ],
-              [
-                html.text("Edit"),
-              ],
-            ),
-            html.button(
-              [
-                attribute.class("button"),
-                attribute.data("type", "delete"),
-                attribute.data(
-                  "confirm",
-                  "Are you sure you want to delete this card?",
-                ),
-                event.on_click(UserDeletedCard(card.lane_id, card.id)),
-              ],
-              [
-                html.text("Delete"),
-              ],
-            ),
-          ]),
-          phase == phase.Draft,
-        ),
-        maybe_render(
-          html.div([attribute.class("card__actions")], [
-            html.div([], [html.text(int.to_string(card.vote_count))]),
-            maybe_render(
-              html.button(
-                [
-                  attribute.class("button"),
-                  attribute.class("vote"),
-                  event.on_click(UserAddedCardVote(card.lane_id, card.id)),
-                ],
-                [
-                  html.text("Vote"),
-                ],
+        html.div([attribute.class("card__actions")], [
+          html.button(
+            [
+              attribute.class("button"),
+              attribute.class("card__edit"),
+              event.on_click(UserSetEditCard(
+                card.lane_id,
+                card.id,
+                card.content,
+              )),
+            ],
+            [
+              html.text("Edit"),
+            ],
+          ),
+          html.button(
+            [
+              attribute.class("button"),
+              attribute.data("type", "delete"),
+              attribute.data(
+                "confirm",
+                "Are you sure you want to delete this card?",
               ),
-              !card.voted,
-            ),
-            maybe_render(
-              html.button(
-                [
-                  attribute.class("button"),
-                  attribute.class("vote"),
-                  event.on_click(UserRemovedCardVote(card.lane_id, card.id)),
-                ],
-                [
-                  html.text("Remove Vote"),
-                ],
-              ),
-              card.voted,
-            ),
-          ]),
-          phase == phase.Voting,
-        ),
+              event.on_click(UserDeletedCard(card.lane_id, card.id)),
+            ],
+            [
+              html.text("Delete"),
+            ],
+          ),
+        ]),
       ])
     EditCardView(..) -> {
       html.form(
