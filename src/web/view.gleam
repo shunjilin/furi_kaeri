@@ -335,6 +335,7 @@ fn render_add_card(lane_id: lane.LaneId, draft: String) {
         [
           attribute.id(lane_id_as_string <> "draft"),
           attribute.aria_label("Draft Card"),
+          attribute.required(True),
           event.debounce(
             event.on_input(fn(content) {
               UserUpdatedDraftCard(lane_id:, content:)
@@ -410,6 +411,7 @@ fn render_card(card: CardView) -> Element(Msg) {
             [
               attribute.id(lane_id_as_string <> "edit"),
               attribute.aria_label("Edit Card"),
+              attribute.required(True),
               event.debounce(
                 event.on_input(fn(content) {
                   UserUpdatedEditCard(
