@@ -197,7 +197,8 @@ fn do_reveal_board(board: board.Board) -> Result(board.Board, String) {
   |> board.reveal_board()
   |> result.map_error(fn(error) {
     case error {
-      board.RevealBoardAlreadyInReview -> "Board is already in review."
+      board.RevealBoardAlreadyRevealed -> "Board is already revealed."
+      board.RevealBoardNoCardsToReveal -> "No cards to reveal."
     }
   })
 }

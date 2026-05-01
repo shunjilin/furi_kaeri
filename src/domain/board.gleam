@@ -1,6 +1,7 @@
 import domain/lane
 import domain/phase
 import domain/values/non_empty_string as nes
+import gleam/bool
 import gleam/list
 import gleam/result
 import youid/uuid
@@ -35,18 +36,24 @@ pub fn phase(board: Board) -> phase.Phase {
 }
 
 pub type RevealError {
-  RevealBoardAlreadyInReview
+  RevealBoardAlreadyRevealed
+  RevealBoardNoCardsToReveal
 }
 
 pub fn reveal_board(board: Board) -> Result(Board, RevealError) {
-  case board.phase {
-    phase.Draft -> {
-      Ok(Board(..board, phase: phase.Review))
-    }
-    phase.Review -> {
-      Error(RevealBoardAlreadyInReview)
-    }
-  }
+  use <- bool.guard(
+    when: board.phase == phase.Review,
+    return: Error(RevealBoardAlreadyRevealed),
+  )
+
+  let cards = board |> lanes |> list.flat_map(lane.cards)
+
+  use <- bool.guard(
+    when: cards == [],
+    return: Error(RevealBoardNoCardsToReveal),
+  )
+
+  Ok(Board(..board, phase: phase.Review))
 }
 
 pub type UpdateLaneError(e) {
