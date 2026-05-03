@@ -52,10 +52,6 @@ pub fn start_link() -> Result(actor.Started(Subject(Message)), actor.StartError)
   |> actor.start
 }
 
-pub fn get_board(server: Subject(Message)) -> board.Board {
-  process.call(server, 1000, GetBoard)
-}
-
 fn handle_message(
   board: board.Board,
   message: Message,
