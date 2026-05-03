@@ -10,6 +10,7 @@ import gleam/erlang/process.{type Subject}
 import gleam/int
 import gleam/list
 import gleam/result
+import gleam/string
 import group_registry.{type GroupRegistry}
 import lustre.{type App}
 import lustre/attribute
@@ -110,8 +111,23 @@ fn card_view_from_card(
   |> result.unwrap(ShowCardView(
     id: card.id(card),
     lane_id: lane_id,
-    content: non_empty_string.to_string(card.content(card)),
+    content: card
+      |> card.content()
+      |> non_empty_string.to_string()
+      |> maybe_mask(user_id, _, card.author_id(card)),
   ))
+}
+
+/// mask the card if unrevealed and not belonging to user
+/// TODO: maybe make this a function to render the ShowCardView and add a
+/// masked property so we can render the necessary screen reader attributes
+fn maybe_mask(
+  user_id: user.UserId,
+  content: String,
+  author_id: user.UserId,
+) -> String {
+  use <- bool.guard(when: user_id == author_id, return: content)
+  content |> string.length |> string.repeat("*", _)
 }
 
 fn update_draft(
