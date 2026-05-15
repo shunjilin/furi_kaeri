@@ -1,8 +1,9 @@
-import domain/phase
 import domain/user
 import domain/values/non_empty_string as nes
 import domain/vote
+import gleam/bool
 import gleam/set
+import gleam/string
 import youid/uuid
 
 pub type CardId {
@@ -15,6 +16,7 @@ pub opaque type Card {
     author_id: user.UserId,
     content: nes.NonEmptyString,
     votes: set.Set(vote.Vote),
+    children_ids: List(CardId),
   )
 }
 
@@ -43,25 +45,24 @@ pub fn voted(card: Card, user_id: user.UserId) -> Bool {
 }
 
 pub fn new(author_id: user.UserId, content: nes.NonEmptyString) -> Card {
-  Card(id: new_id(), author_id: author_id, content: content, votes: set.new())
+  Card(
+    id: new_id(),
+    author_id: author_id,
+    content: content,
+    votes: set.new(),
+    children_ids: [],
+  )
 }
 
 pub type EditError {
   EditNotAuthor
-  EditNotDraft
 }
 
 pub fn edit(
-  card: Card,
-  author_id: user.UserId,
-  new_content: nes.NonEmptyString,
-  phase: phase.Phase,
+  card card: Card,
+  author_id author_id: user.UserId,
+  content new_content: nes.NonEmptyString,
 ) -> Result(Card, EditError) {
-  use <- phase.authorize_phase(
-    current: phase,
-    allowed: phase.Draft,
-    error: EditNotDraft,
-  )
   let is_author = card.author_id == author_id
 
   case is_author {
@@ -72,42 +73,49 @@ pub fn edit(
 
 pub type VoteError {
   VoteAlreadyVoted
-  VoteNotReviewPhase
 }
 
 pub type RemoveVoteError {
   RemoveVoteNotFound
-  RemoveVoteNotReviewPhase
 }
 
-pub fn vote(
-  card: Card,
-  vote: vote.Vote,
-  phase: phase.Phase,
-) -> Result(Card, VoteError) {
-  use <- phase.authorize_phase(
-    current: phase,
-    allowed: phase.Voting,
-    error: VoteNotReviewPhase,
-  )
+pub fn vote(card card: Card, vote vote: vote.Vote) -> Result(Card, VoteError) {
   case set.contains(card.votes, vote) {
     True -> Error(VoteAlreadyVoted)
     False -> Ok(Card(..card, votes: set.insert(card.votes, vote)))
   }
 }
 
-pub fn remove_vote(
-  card: Card,
-  vote: vote.Vote,
-  phase: phase.Phase,
-) -> Result(Card, RemoveVoteError) {
-  use <- phase.authorize_phase(
-    current: phase,
-    allowed: phase.Voting,
-    error: RemoveVoteNotReviewPhase,
-  )
+pub fn remove_vote(card: Card, vote: vote.Vote) -> Result(Card, RemoveVoteError) {
   case set.contains(card.votes, vote) {
     True -> Ok(Card(..card, votes: set.delete(card.votes, vote)))
     False -> Error(RemoveVoteNotFound)
   }
+}
+
+pub type MergeError {
+  MergeAlreadyMerged
+  MergeCannotMergeToSelf
+}
+
+/// Naive merge that just merges the child's content to the parent's content.
+/// Caller must follow up by removing the child card from the board.
+pub fn merge(from child: Card, to parent: Card) -> Result(Card, MergeError) {
+  use <- bool.guard(
+    when: child.id == parent.id,
+    return: Error(MergeCannotMergeToSelf),
+  )
+
+  let delimiter =
+    "\n"
+    |> string.append(to: _, suffix: string.repeat("-", 4))
+    |> string.append(to: _, suffix: "\n")
+
+  let merged_content =
+    nes.append(
+      parent.content,
+      string.append(to: delimiter, suffix: nes.to_string(child.content)),
+    )
+
+  Ok(Card(..parent, content: merged_content))
 }

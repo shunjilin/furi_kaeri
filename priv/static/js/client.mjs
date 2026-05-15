@@ -1,5 +1,5 @@
-window.addEventListener('click', (e) => {
-    const path = e.composedPath();
+window.addEventListener('click', (event) => {
+    const path = event.composedPath();
     const target = path.find(el =>
         el.getAttribute && el.getAttribute('data-confirm')
     );
@@ -7,8 +7,19 @@ window.addEventListener('click', (e) => {
     if (target) {
         const msg = target.getAttribute('data-confirm');
         if (!confirm(msg)) {
-            e.preventDefault();
-            e.stopPropagation();
+            event.preventDefault();
+            event.stopPropagation();
         }
     }
 }, true);
+
+window.addEventListener('dragover', (event) => {
+    const path = event.composedPath();
+    const target = path.find(el =>
+        el.getAttribute && el.getAttribute('data-dropzone') == 'true'
+    );
+
+    if (target) {
+        event.preventDefault();
+    }
+})

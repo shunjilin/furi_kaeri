@@ -18,3 +18,7 @@ pub fn new(input: String) -> Result(NonEmptyString, ValueError) {
 pub fn to_string(nes: NonEmptyString) -> String {
   nes.value
 }
+
+pub fn append(to to: NonEmptyString, suffix suffix: String) -> NonEmptyString {
+  NonEmptyString(string.append(to: to.value, suffix:))
+}

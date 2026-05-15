@@ -19,30 +19,32 @@ pub type Message {
   )
   EditCard(
     user_id: user.UserId,
-    lane_id: lane.LaneId,
     card_id: card.CardId,
     content: String,
     reply_to: Subject(Result(board.Board, String)),
   )
   RemoveCard(
     user_id: user.UserId,
-    lane_id: lane.LaneId,
     card_id: card.CardId,
+    reply_to: Subject(Result(board.Board, String)),
+  )
+  MergeCard(
+    from_card_id: card.CardId,
+    to_card_id: card.CardId,
     reply_to: Subject(Result(board.Board, String)),
   )
   Vote(
     user_id: user.UserId,
-    lane_id: lane.LaneId,
     card_id: card.CardId,
     reply_to: Subject(Result(board.Board, String)),
   )
   RemoveVote(
     user_id: user.UserId,
-    lane_id: lane.LaneId,
     card_id: card.CardId,
     reply_to: Subject(Result(board.Board, String)),
   )
   RevealBoard(reply_to: Subject(Result(board.Board, String)))
+  StartVoting(reply_to: Subject(Result(board.Board, String)))
 }
 
 pub fn start_link() -> Result(actor.Started(Subject(Message)), actor.StartError) {
@@ -59,27 +61,43 @@ fn handle_message(
   case message {
     GetBoard(reply_to) -> handle_get_board(board, reply_to)
     AddCard(user_id, lane_id, content, reply_to) -> {
-      do_add_card(board, user_id, lane_id, content)
+      board
+      |> do_add_card(user_id, lane_id, content)
       |> respond(board, reply_to)
     }
-    EditCard(user_id, lane_id, card_id, content, reply_to) -> {
-      do_edit_card(board, user_id, lane_id, card_id, content)
+    EditCard(user_id, card_id, content, reply_to) -> {
+      board
+      |> do_edit_card(user_id, card_id, content)
       |> respond(board, reply_to)
     }
-    RemoveCard(user_id, lane_id, card_id, reply_to) -> {
-      do_remove_card(board, user_id, lane_id, card_id)
+    RemoveCard(user_id, card_id, reply_to) -> {
+      board
+      |> do_remove_card(user_id, card_id)
       |> respond(board, reply_to)
     }
-    Vote(user_id, lane_id, card_id, reply_to) -> {
-      do_vote(board, user_id, lane_id, card_id)
+    MergeCard(from_card_id, to_card_id, reply_to) -> {
+      board
+      |> do_merge_card(from_card_id, to_card_id)
       |> respond(board, reply_to)
     }
-    RemoveVote(user_id, lane_id, card_id, reply_to) -> {
-      do_remove_vote(board, user_id, lane_id, card_id)
+    Vote(user_id, card_id, reply_to) -> {
+      board
+      |> do_vote(user_id, card_id)
+      |> respond(board, reply_to)
+    }
+    RemoveVote(user_id, card_id, reply_to) -> {
+      board
+      |> do_remove_vote(user_id, card_id)
       |> respond(board, reply_to)
     }
     RevealBoard(reply_to) -> {
-      do_reveal_board(board)
+      board
+      |> do_reveal_board()
+      |> respond(board, reply_to)
+    }
+    StartVoting(reply_to) -> {
+      board
+      |> do_start_voting()
       |> respond(board, reply_to)
     }
   }
@@ -88,6 +106,25 @@ fn handle_message(
 fn handle_get_board(board: board.Board, reply_to: Subject(board.Board)) {
   process.send(reply_to, board)
   actor.continue(board)
+}
+
+fn do_merge_card(
+  board: board.Board,
+  from_card_id: card.CardId,
+  to_card_id: card.CardId,
+) -> Result(board.Board, String) {
+  board.merge_cards(board:, from_card_id:, to_card_id:)
+  |> result.map_error(fn(error) {
+    case error {
+      board.MergeCardsFromCardNotFound -> "Card to merge from not found."
+      board.MergeCardsToCardNotFound -> "Card to merge to not found."
+      board.MergeCardsNotInPreviewPhase -> "Can only merge in preview phase."
+      board.MergeCardsCardError(card.MergeAlreadyMerged) ->
+        "Cannot merge already merged card"
+      board.MergeCardsCardError(card.MergeCannotMergeToSelf) ->
+        "Cannot merge card to itself."
+    }
+  })
 }
 
 fn do_add_card(
@@ -105,47 +142,43 @@ fn do_add_card(
   let card = card.new(user_id, validated_content)
 
   board
-  |> board.update_lane(lane_id, fn(lane) { Ok(lane.add_card(lane, card)) })
+  |> board.add_card_to_lane(lane_id:, card:)
   |> map_lane_error(function.identity)
 }
 
 fn do_edit_card(
   board: board.Board,
-  user_id: user.UserId,
-  lane_id: lane.LaneId,
+  author_id: user.UserId,
   card_id: card.CardId,
   content: String,
 ) -> Result(board.Board, String) {
-  use validated_content <- result.try(
+  use content <- result.try(
     content
     |> non_empty_string.new()
     |> result.replace_error("Invalid content."),
   )
 
-  update_card_in_board(board, lane_id, card_id, fn(card) {
-    card.edit(card, user_id, validated_content, board.phase(board))
-  })
-  |> map_card_error(fn(error) {
+  board.edit_card_content(board:, author_id:, card_id:, content:)
+  |> result.map_error(fn(error) {
     case error {
-      card.EditNotAuthor -> "Can only edit as author."
-      card.EditNotDraft -> "Can only edit in draft phase."
+      board.EditCardError(card.EditNotAuthor) -> "Can only edit as author."
+      board.EditCardNotFound -> "Card to edit not found."
+      board.EditCardNotDraftPhase -> "Can only edit in draft phase."
     }
   })
 }
 
 fn do_remove_card(
   board: board.Board,
-  user_id: user.UserId,
-  lane_id: lane.LaneId,
+  author_id: user.UserId,
   card_id: card.CardId,
 ) -> Result(board.Board, String) {
-  board.update_lane(board, lane_id, fn(lane) {
-    lane.remove_card(lane, card_id, user_id)
-  })
-  |> map_lane_error(fn(error) {
+  board.remove_card(board:, author_id:, card_id:)
+  |> result.map_error(fn(error) {
     case error {
-      lane.CardToRemoveNotFound -> "Card does not exist."
-      lane.NotAuthorOfCardToRemove -> "Can only remove as author."
+      board.RemoveCardNotDraftPhase -> "Can only remove card in draft phase."
+      board.RemoveCardNotAuthor -> "Can only remove as author."
+      board.RemoveCardNotFound -> "Card to remove not found."
     }
   })
 }
@@ -153,18 +186,15 @@ fn do_remove_card(
 fn do_vote(
   board: board.Board,
   user_id: user.UserId,
-  lane_id: lane.LaneId,
   card_id: card.CardId,
 ) -> Result(board.Board, String) {
   let vote = vote.Vote(user_id)
-  board
-  |> update_card_in_board(lane_id, card_id, fn(card) {
-    card.vote(card, vote, board.phase(board))
-  })
-  |> map_card_error(fn(error) {
+  board.vote_for_card(board:, vote:, card_id:)
+  |> result.map_error(fn(error) {
     case error {
-      card.VoteAlreadyVoted -> "Already voted for card."
-      card.VoteNotReviewPhase -> "Can only vote in review phase."
+      board.VoteCardNotFound -> "Card to vote for not found."
+      board.VoteNotVotingPhase -> "Can only vote in review phase."
+      board.VoteCardError(card.VoteAlreadyVoted) -> "Already voted for card."
     }
   })
 }
@@ -172,18 +202,16 @@ fn do_vote(
 fn do_remove_vote(
   board: board.Board,
   user_id: user.UserId,
-  lane_id: lane.LaneId,
   card_id: card.CardId,
 ) -> Result(board.Board, String) {
   let vote = vote.Vote(user_id)
-  board
-  |> update_card_in_board(lane_id, card_id, fn(card) {
-    card.remove_vote(card, vote, board.phase(board))
-  })
-  |> map_card_error(fn(error) {
+  board.remove_vote_for_card(board:, vote:, card_id:)
+  |> result.map_error(fn(error) {
     case error {
-      card.RemoveVoteNotFound -> "No vote found."
-      card.RemoveVoteNotReviewPhase -> "Can only remove vote in review phase."
+      board.RemoveVoteCardNotFound -> "Card to remove vote for not found."
+      board.RemoveVoteNotVotingPhase -> "Can only remove vote in review phase."
+      board.RemoveVoteCardError(card.RemoveVoteNotFound) ->
+        "No vote found for card."
     }
   })
 }
@@ -195,6 +223,17 @@ fn do_reveal_board(board: board.Board) -> Result(board.Board, String) {
     case error {
       board.RevealBoardAlreadyRevealed -> "Board is already revealed."
       board.RevealBoardNoCardsToReveal -> "No cards to reveal."
+    }
+  })
+}
+
+fn do_start_voting(board: board.Board) -> Result(board.Board, String) {
+  board
+  |> board.start_voting()
+  |> result.map_error(fn(error) {
+    case error {
+      board.StartVotingAlreadyVoting -> "Already in voting phase."
+      board.StartVotingCardsNotReveled -> "Cards not yet revealed."
     }
   })
 }
@@ -229,17 +268,6 @@ fn respond(
   }
 }
 
-fn update_card_in_board(
-  board: board.Board,
-  lane_id: lane.LaneId,
-  card_id: card.CardId,
-  updater: fn(card.Card) -> Result(card.Card, e),
-) -> Result(board.Board, board.UpdateLaneError(lane.UpdateCardError(e))) {
-  board.update_lane(board, lane_id, fn(lane) {
-    lane.update_card(lane, card_id, updater)
-  })
-}
-
 fn map_lane_error(
   res: Result(a, board.UpdateLaneError(e)),
   mapper: fn(e) -> String,
@@ -248,16 +276,5 @@ fn map_lane_error(
     Ok(val) -> Ok(val)
     Error(board.LaneToUpdateNotFound) -> Error("Lane not found.")
     Error(board.TransformError(e)) -> Error(mapper(e))
-  }
-}
-
-fn map_card_error(
-  res: Result(board.Board, board.UpdateLaneError(lane.UpdateCardError(e))),
-  mapper: fn(e) -> String,
-) -> Result(board.Board, String) {
-  use lane_error <- map_lane_error(res)
-  case lane_error {
-    lane.CardToUpdateNotFound -> "Card not found."
-    lane.TransformError(e) -> mapper(e)
   }
 }

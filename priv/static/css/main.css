@@ -110,6 +110,7 @@ h6 {
 
     --color-bg: #c4ddf6;
     --color-bg-secondary: #e7dcdc;
+    --color-bg-secondary-tint: #d6c0c0;
     --color-bg-tertiary: #edf3d8;
 
     --color-primary: #1d4980;
@@ -199,6 +200,11 @@ h2 {
     align-items: center;
     justify-content: flex-end;
     gap: var(--space-1);
+}
+
+.card[draggable='true']:hover {
+    background-color: var(--color-bg-secondary-tint);
+    cursor: grab;
 }
 
 button.button {

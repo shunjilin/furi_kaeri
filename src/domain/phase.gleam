@@ -1,5 +1,6 @@
 pub type Phase {
   Draft
+  Preview
   Voting
 }
 
@@ -22,6 +23,7 @@ pub fn authorize_phase(
 pub fn to_string(phase: Phase) -> String {
   case phase {
     Draft -> "Draft"
+    Preview -> "Preview"
     Voting -> "Voting"
   }
 }

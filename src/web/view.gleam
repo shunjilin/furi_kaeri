@@ -6,9 +6,12 @@ import domain/user
 import domain/values/non_empty_string
 import gleam/bool
 import gleam/dict
+import gleam/dynamic/decode
 import gleam/erlang/process.{type Subject}
 import gleam/int
+import gleam/io
 import gleam/list
+import gleam/option
 import gleam/result
 import gleam/string
 import group_registry.{type GroupRegistry}
@@ -25,6 +28,7 @@ import youid/uuid
 pub type CardView {
   ShowCardView(id: card.CardId, lane_id: lane.LaneId, content: String)
   EditCardView(id: card.CardId, lane_id: lane.LaneId, content: String)
+  PreviewCardView(id: card.CardId, lane_id: lane.LaneId, content: String)
   VotingCardView(
     id: card.CardId,
     lane_id: lane.LaneId,
@@ -98,11 +102,21 @@ fn card_view_from_card(
     return: VotingCardView(
       id: card.id(card),
       lane_id: lane_id,
-      content: non_empty_string.to_string(card.content(card)),
+      content: card |> card.content() |> non_empty_string.to_string(),
       vote_count: card.vote_count(card),
       voted: card.voted(card, user_id),
     ),
   )
+
+  use <- bool.guard(
+    when: phase == phase.Preview,
+    return: PreviewCardView(
+      id: card.id(card),
+      lane_id: lane_id,
+      content: card |> card.content() |> non_empty_string.to_string(),
+    ),
+  )
+
   cards_under_edit
   |> dict.get(#(lane_id, card.id(card)))
   |> result.map(fn(content) {
@@ -161,11 +175,20 @@ type CardsUnderDraft =
 type CardsUnderEdit =
   dict.Dict(#(lane.LaneId, card.CardId), String)
 
+pub type CardUnderDrag {
+  CardUnderDrag(card_id: card.CardId)
+}
+
+pub type CardDroppedOn {
+  CardDroppedOn(card_id: card.CardId)
+}
+
 pub type Model {
   Model(
     board: board.Board,
     cards_under_draft: CardsUnderDraft,
     cards_under_edit: CardsUnderEdit,
+    card_under_drag: option.Option(CardUnderDrag),
     user: user.User,
     registry: GroupRegistry(SharedMsg),
     manager: Subject(board_api.Message),
@@ -184,10 +207,13 @@ pub opaque type Msg {
   )
   UserEditedCard(lane_id: lane.LaneId, card_id: card.CardId, content: String)
   UserAddedCard(lane_id: lane.LaneId, content: String)
-  UserDeletedCard(lane_id: lane.LaneId, card_id: card.CardId)
+  UserDeletedCard(card_id: card.CardId)
   UserRevealedBoard
-  UserAddedCardVote(lane_id: lane.LaneId, card_id: card.CardId)
-  UserRemovedCardVote(lane_id: lane.LaneId, card_id: card.CardId)
+  UserDraggedCard(CardUnderDrag)
+  UserDroppedCard(CardDroppedOn)
+  UserStartedVoting
+  UserAddedCardVote(card_id: card.CardId)
+  UserRemovedCardVote(card_id: card.CardId)
   UserUpdatedBoard(board: board.Board)
   UserReceivedError(String)
 }
@@ -225,6 +251,7 @@ fn init(
       user: user,
       registry: registry,
       manager: manager,
+      card_under_drag: option.None,
     )
 
   #(model, subscribe(registry, AppReceivedSharedMsg))
@@ -282,7 +309,6 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
             process.call(model.manager, 1000, fn(reply_to) {
               board_api.EditCard(
                 user_id: user.id(model.user),
-                lane_id: lane_id,
                 card_id: card_id,
                 content: content,
                 reply_to: reply_to,
@@ -297,14 +323,13 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         unset_edit_card(model.cards_under_edit, lane_id, card_id)
       #(Model(..model, cards_under_edit:), effect)
     }
-    UserDeletedCard(lane_id, card_id) -> {
+    UserDeletedCard(card_id) -> {
       let effect =
         effect.from(fn(dispatch) {
           let result =
             process.call(model.manager, 1000, fn(reply_to) {
               board_api.RemoveCard(
                 user_id: user.id(model.user),
-                lane_id: lane_id,
                 card_id: card_id,
                 reply_to: reply_to,
               )
@@ -331,17 +356,38 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
       #(model, effect)
     }
-    UserAddedCardVote(lane_id, card_id) -> {
+    UserDraggedCard(card_under_drag) -> {
+      #(
+        Model(..model, card_under_drag: option.Some(card_under_drag)),
+        effect.none(),
+      )
+    }
+    UserDroppedCard(CardDroppedOn(to_card_id)) -> {
+      case model.card_under_drag {
+        option.None -> #(model, effect.none())
+        option.Some(CardUnderDrag(from_card_id)) -> {
+          let effect =
+            effect.from(fn(dispatch) {
+              let result =
+                process.call(model.manager, 1000, fn(reply_to) {
+                  board_api.MergeCard(from_card_id, to_card_id, reply_to)
+                })
+              case result {
+                Ok(updated_board) -> dispatch(UserUpdatedBoard(updated_board))
+                Error(error) -> dispatch(UserReceivedError(error))
+              }
+            })
+
+          #(model, effect)
+        }
+      }
+    }
+    UserStartedVoting -> {
       let effect =
         effect.from(fn(dispatch) {
           let result =
             process.call(model.manager, 1000, fn(reply_to) {
-              board_api.Vote(
-                user.id(model.user),
-                lane_id,
-                card_id,
-                reply_to: reply_to,
-              )
+              board_api.StartVoting(reply_to: reply_to)
             })
           case result {
             Ok(updated_board) -> dispatch(UserUpdatedBoard(updated_board))
@@ -351,14 +397,28 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
       #(model, effect)
     }
-    UserRemovedCardVote(lane_id, card_id) -> {
+    UserAddedCardVote(card_id) -> {
+      let effect =
+        effect.from(fn(dispatch) {
+          let result =
+            process.call(model.manager, 1000, fn(reply_to) {
+              board_api.Vote(user.id(model.user), card_id, reply_to: reply_to)
+            })
+          case result {
+            Ok(updated_board) -> dispatch(UserUpdatedBoard(updated_board))
+            Error(error) -> dispatch(UserReceivedError(error))
+          }
+        })
+
+      #(model, effect)
+    }
+    UserRemovedCardVote(card_id) -> {
       let effect =
         effect.from(fn(dispatch) {
           let result =
             process.call(model.manager, 1000, fn(reply_to) {
               board_api.RemoveVote(
                 user.id(model.user),
-                lane_id,
                 card_id,
                 reply_to: reply_to,
               )
@@ -371,8 +431,8 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
       #(model, effect)
     }
-    UserReceivedError(_) -> {
-      // todo: handle error
+    UserReceivedError(err) -> {
+      io.println(err)
       #(model, effect.none())
     }
     AppReceivedSharedMsg(ApiReturnedBoard(updated_board)) -> {
@@ -395,6 +455,17 @@ fn view(model: Model) -> Element(Msg) {
   html.div([attribute.class("center")], [
     html.div([attribute.class("heading")], [
       html.h1([], [html.text(board_view.title)]),
+      maybe_render(
+        html.button(
+          [
+            attribute.class("button"),
+            attribute.data("confirm", "Are you ready to start voting?"),
+            event.on_click(UserStartedVoting),
+          ],
+          [html.text("Start Voting")],
+        ),
+        phase == phase.Preview,
+      ),
       maybe_render(
         html.button(
           [
@@ -485,6 +556,33 @@ fn render_card(card: CardView) -> Element(Msg) {
   let lane.LaneId(lane_id_as_uuid) = card.lane_id
   let lane_id_as_string = uuid.to_string(lane_id_as_uuid)
   case card {
+    PreviewCardView(..) ->
+      html.div(
+        [
+          attribute.class("card"),
+          attribute.data("dropzone", "true"),
+          attribute.draggable(True),
+          event.advanced(
+            "dragstart",
+            decode.success(event.handler(
+              dispatch: UserDraggedCard(CardUnderDrag(card.id)),
+              prevent_default: False,
+              stop_propagation: False,
+            )),
+          ),
+          event.advanced(
+            "drop",
+            decode.success(event.handler(
+              dispatch: UserDroppedCard(CardDroppedOn(card.id)),
+              prevent_default: True,
+              stop_propagation: False,
+            )),
+          ),
+        ],
+        [
+          html.div([], [html.text(card.content)]),
+        ],
+      )
     VotingCardView(..) ->
       html.div([attribute.class("card")], [
         html.div([], [html.text(card.content)]),
@@ -495,7 +593,7 @@ fn render_card(card: CardView) -> Element(Msg) {
               [
                 attribute.class("button"),
                 attribute.class("vote"),
-                event.on_click(UserAddedCardVote(card.lane_id, card.id)),
+                event.on_click(UserAddedCardVote(card.id)),
               ],
               [
                 html.text("Vote"),
@@ -508,7 +606,7 @@ fn render_card(card: CardView) -> Element(Msg) {
               [
                 attribute.class("button"),
                 attribute.class("vote"),
-                event.on_click(UserRemovedCardVote(card.lane_id, card.id)),
+                event.on_click(UserRemovedCardVote(card.id)),
               ],
               [
                 html.text("Remove Vote"),
@@ -544,7 +642,7 @@ fn render_card(card: CardView) -> Element(Msg) {
                 "confirm",
                 "Are you sure you want to delete this card?",
               ),
-              event.on_click(UserDeletedCard(card.lane_id, card.id)),
+              event.on_click(UserDeletedCard(card.id)),
             ],
             [
               html.text("Delete"),

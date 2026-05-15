@@ -1,5 +1,4 @@
 import domain/card
-import domain/user
 import domain/values/non_empty_string as nes
 import gleam/list
 import gleam/result
@@ -29,7 +28,7 @@ pub fn cards(lane: Lane) -> List(card.Card) {
   lane.cards
 }
 
-pub fn add_card(lane: Lane, card: card.Card) {
+pub fn add_card(lane: Lane, card: card.Card) -> Lane {
   Lane(..lane, cards: list.append(lane.cards, [card]))
 }
 
@@ -39,9 +38,9 @@ pub type UpdateCardError(e) {
 }
 
 pub fn update_card(
-  lane: Lane,
-  card_id: card.CardId,
-  transform: fn(card.Card) -> Result(card.Card, e),
+  lane lane: Lane,
+  card_id card_id: card.CardId,
+  transform transform: fn(card.Card) -> Result(card.Card, e),
 ) -> Result(Lane, UpdateCardError(e)) {
   case find_card(lane, card_id) {
     Ok(card) -> {
@@ -57,21 +56,14 @@ pub fn update_card(
 
 pub type RemoveCardError {
   CardToRemoveNotFound
-  NotAuthorOfCardToRemove
 }
 
 pub fn remove_card(
-  lane: Lane,
-  card_id: card.CardId,
-  author_id: user.UserId,
-) -> Result(Lane, RemoveCardError) {
+  lane lane: Lane,
+  card_id card_id: card.CardId,
+) -> Result(#(card.Card, Lane), RemoveCardError) {
   case find_card(lane, card_id) {
-    Ok(card) -> {
-      case card.author_id(card) == author_id {
-        True -> Ok(do_remove_card(lane, card_id))
-        False -> Error(NotAuthorOfCardToRemove)
-      }
-    }
+    Ok(card) -> Ok(#(card, do_remove_card(lane, card_id)))
     Error(Nil) -> Error(CardToRemoveNotFound)
   }
 }
@@ -95,6 +87,6 @@ fn do_remove_card(lane: Lane, card_id: card.CardId) {
   )
 }
 
-fn find_card(lane: Lane, card_id: card.CardId) {
+pub fn find_card(lane: Lane, card_id: card.CardId) {
   list.find(lane.cards, fn(card) { card.id(card) == card_id })
 }

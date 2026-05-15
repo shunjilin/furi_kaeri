@@ -58,12 +58,7 @@ pub fn update_lane_card_test() {
   |> fn(board) {
     use lane <- board.update_lane(board, lane.id(lane))
     use card <- lane.update_card(lane, card.id(card))
-    card.edit(
-      card,
-      card.author_id(card),
-      f.non_empty_string("Updated"),
-      board.phase(board),
-    )
+    card.edit(card, card.author_id(card), f.non_empty_string("Updated"))
   }
   |> should.be_ok
   |> board.lanes
@@ -89,16 +84,18 @@ pub fn update_lane_propagate_error_test() {
   |> should.be_ok
   |> board.reveal_board()
   |> should.be_ok
+  |> board.start_voting()
+  |> should.be_ok
   |> fn(board) {
     use lane <- board.update_lane(board, lane.id(lane))
     use card <- lane.update_card(lane, card.id(card))
-    card.vote(card, vote, board.phase(board))
+    card.vote(card, vote)
   }
   |> should.be_ok
   |> fn(board) {
     use lane <- board.update_lane(board, lane.id(lane))
     use card <- lane.update_card(lane, card.id(card))
-    card.vote(card, vote, board.phase(board))
+    card.vote(card, vote)
   }
   |> should.be_error
   |> should.equal(
@@ -121,7 +118,7 @@ pub fn update_lane_not_found_test() {
   |> fn(board) {
     use lane <- board.update_lane(board, lane.id(f.lane()))
     use card <- lane.update_card(lane, card.id(card))
-    card.vote(card, vote, board.phase(board))
+    card.vote(card, vote)
   }
   |> should.be_error
   |> should.equal(board.LaneToUpdateNotFound)
