@@ -20,6 +20,13 @@ window.addEventListener('drop', (event) => {
     );
 
     if (target) {
+        const subjectId = event.dataTransfer.getData("text/plain");
+        const targetId = target.id;
+
+        if (subjectId == targetId) {
+            return;
+        }
+
         const msg = target.getAttribute('data-confirm');
         if (!confirm(msg)) {
             event.preventDefault();
@@ -27,6 +34,17 @@ window.addEventListener('drop', (event) => {
         }
     }
 }, true);
+
+window.addEventListener('dragstart', (event) => {
+    const path = event.composedPath();
+    const target = path.find(el =>
+        el.getAttribute && el.getAttribute('data-confirm')
+    );
+    if (target) {
+        event.dataTransfer.setData('text/plain', target.id);
+        event.dataTransfer.dropEffect = 'move';
+    }
+});
 
 
 window.addEventListener('dragover', (event) => {

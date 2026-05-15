@@ -547,10 +547,13 @@ fn render_add_card(lane_id: lane.LaneId, draft: String) {
 fn render_card(card: CardView) -> Element(Msg) {
   let lane.LaneId(lane_id_as_uuid) = card.lane_id
   let lane_id_as_string = uuid.to_string(lane_id_as_uuid)
+  let card.CardId(card_id_as_uuid) = card.id
+  let card_id_as_string = uuid.to_string(card_id_as_uuid)
   case card {
     PreviewCardView(..) ->
       html.div(
         [
+          attribute.id(string.append(to: "card-", suffix: card_id_as_string)),
           attribute.class("card"),
           attribute.data("dropzone", "true"),
           attribute.draggable(True),
