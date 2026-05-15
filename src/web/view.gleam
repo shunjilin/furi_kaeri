@@ -225,14 +225,16 @@ pub opaque type SharedMsg {
 pub fn component(
   manager: Subject(board_api.Message),
   user: user.User,
+  board_id: String,
 ) -> App(GroupRegistry(SharedMsg), Model, Msg) {
-  lustre.application(init(_, manager, user), update, view)
+  lustre.application(init(_, manager, user, board_id), update, view)
 }
 
 fn init(
   registry: GroupRegistry(SharedMsg),
   manager: Subject(board_api.Message),
   user: user.User,
+  board_id: String,
 ) -> #(Model, Effect(Msg)) {
   let self = process.new_subject()
 
@@ -240,7 +242,7 @@ fn init(
 
   let initial_board = case process.receive(self, 1000) {
     Ok(board) -> board
-    Error(_) -> board_api.init_board()
+    Error(_) -> board_api.init_board(board_id)
   }
 
   let model =
@@ -254,13 +256,20 @@ fn init(
       card_under_drag: option.None,
     )
 
-  #(model, subscribe(registry, AppReceivedSharedMsg))
+  #(model, subscribe(registry, board.id(initial_board), AppReceivedSharedMsg))
 }
 
 fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
   case msg {
     UserUpdatedBoard(updated_board) -> {
-      #(model, broadcast(model.registry, ApiReturnedBoard(updated_board)))
+      #(
+        model,
+        broadcast(
+          model.registry,
+          board.id(model.board),
+          ApiReturnedBoard(updated_board),
+        ),
+      )
     }
     UserUpdatedDraftCard(lane_id, content) -> {
       let cards_under_draft =
@@ -697,13 +706,21 @@ fn render_card(card: CardView) -> Element(Msg) {
   }
 }
 
-fn subscribe(registry, msg_wrapper) -> Effect(msg) {
+fn subscribe(
+  registry: GroupRegistry(remote_message),
+  board_id: String,
+  msg_wrapper: fn(remote_message) -> local_message,
+) -> Effect(local_message) {
   use _, _ <- server_component.select
-  let subject = group_registry.join(registry, "board", process.self())
+  let subject = group_registry.join(registry, board_id, process.self())
   process.new_selector() |> process.select_map(subject, msg_wrapper)
 }
 
-fn broadcast(registry: GroupRegistry(msg), msg: msg) -> Effect(any) {
+fn broadcast(
+  registry: GroupRegistry(remote_message),
+  board_id: String,
+  msg: remote_message,
+) -> Effect(any) {
   use _ <- effect.from
-  list.each(group_registry.members(registry, "board"), process.send(_, msg))
+  list.each(group_registry.members(registry, board_id), process.send(_, msg))
 }

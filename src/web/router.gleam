@@ -16,7 +16,7 @@ import lustre/element
 import lustre/element/html.{html}
 import lustre/server_component
 import mist.{type Connection, type ResponseData}
-import web/api/board
+import web/group_manager
 import web/view
 import youid/uuid
 
@@ -25,7 +25,7 @@ const user_id_key: String = "user_id"
 pub type Context {
   Context(
     registry: GroupRegistry(view.SharedMsg),
-    manager: Subject(board.Message),
+    group_manager: Subject(group_manager.Message),
   )
 }
 
@@ -69,13 +69,14 @@ pub fn handle_request(
   }
 
   case request.path_segments(req) {
-    [] -> serve_html(user_result)
+    [] -> serve_html(user_result, "default")
+    ["board", board_id] -> serve_html(user_result, board_id)
     ["static", "css", "main.css"] ->
       serve_static("priv/static/css/main.css", "text/css")
     ["static", "js", "client.mjs"] ->
       serve_static("priv/static/js/client.mjs", "text/javascript")
     ["lustre", "runtime.mjs"] -> serve_runtime()
-    ["ws"] -> serve_board(req, ctx, user)
+    ["board", board_id, "ws"] -> serve_board(req, ctx, user, board_id)
     _ -> not_found()
   }
 }
@@ -104,7 +105,10 @@ fn serve_static(path: String, mime_type: String) -> Response(ResponseData) {
   |> result.lazy_unwrap(fn() { not_found() })
 }
 
-fn serve_html(user_result: GetUserResult) -> Response(ResponseData) {
+fn serve_html(
+  user_result: GetUserResult,
+  board_id: String,
+) -> Response(ResponseData) {
   let body =
     html([attribute.lang("en")], [
       html.head([], [
@@ -128,7 +132,10 @@ fn serve_html(user_result: GetUserResult) -> Response(ResponseData) {
         ),
       ]),
       html.body([attribute.style("height", "100dvh")], [
-        server_component.element([server_component.route("/ws")], []),
+        server_component.element(
+          [server_component.route("/board/" <> board_id <> "/ws")],
+          [],
+        ),
       ]),
     ])
     |> element.to_document_string_tree
@@ -172,11 +179,13 @@ fn serve_board(
   req: Request(Connection),
   ctx: Context,
   user: user.User,
+  board_id: String,
 ) -> Response(ResponseData) {
   mist.websocket(
     request: req,
     on_init: fn(_conn) {
-      let component = view.component(ctx.manager, user)
+      let board_manager = group_manager.get_board(ctx.group_manager, board_id)
+      let component = view.component(board_manager, user, board_id)
       let assert Ok(runtime) =
         lustre.start_server_component(component, ctx.registry)
 

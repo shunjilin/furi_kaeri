@@ -11,7 +11,7 @@ pub fn new_test() {
   let lane_1 = lane.new(f.non_empty_string("Yes"))
   let lane_2 = lane.new(f.non_empty_string("No"))
 
-  let board = board.new(title, [lane_1, lane_2])
+  let board = board.new("test", title, [lane_1, lane_2])
   assert board.title(board) == title
   assert board.lanes(board) == [lane_1, lane_2]
 }

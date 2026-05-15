@@ -7,15 +7,14 @@ import domain/vote
 import gleam/bool
 import gleam/list
 import gleam/result
-import youid/uuid
 
 pub type BoardId {
-  BoardId(uuid.Uuid)
+  BoardId(String)
 }
 
 pub opaque type Board {
   Board(
-    id: BoardId,
+    id: String,
     title: nes.NonEmptyString,
     lanes: List(lane.Lane),
     phase: phase.Phase,
@@ -23,8 +22,16 @@ pub opaque type Board {
   )
 }
 
-pub fn new(title: nes.NonEmptyString, lanes: List(lane.Lane)) -> Board {
-  Board(BoardId(uuid.v7()), title, lanes: lanes, phase: phase.Draft, cards: [])
+pub fn id(board: Board) -> String {
+  board.id
+}
+
+pub fn new(
+  id: String,
+  title: nes.NonEmptyString,
+  lanes: List(lane.Lane),
+) -> Board {
+  Board(id, title, lanes: lanes, phase: phase.Draft, cards: [])
 }
 
 pub fn title(board: Board) -> nes.NonEmptyString {

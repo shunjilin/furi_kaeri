@@ -47,8 +47,11 @@ pub type Message {
   StartVoting(reply_to: Subject(Result(board.Board, String)))
 }
 
-pub fn start_link() -> Result(actor.Started(Subject(Message)), actor.StartError) {
-  init_board()
+pub fn start_link(
+  id: String,
+) -> Result(actor.Started(Subject(Message)), actor.StartError) {
+  id
+  |> init_board()
   |> actor.new
   |> actor.on_message(handle_message)
   |> actor.start
@@ -238,8 +241,8 @@ fn do_start_voting(board: board.Board) -> Result(board.Board, String) {
   })
 }
 
-pub fn init_board() -> board.Board {
-  board.new(new_string("Retro"), [
+pub fn init_board(id) -> board.Board {
+  board.new(id, new_string("Retro"), [
     lane.new(new_string("Start")),
     lane.new(new_string("Stop")),
     lane.new(new_string("Continue")),

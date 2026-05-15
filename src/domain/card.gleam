@@ -106,10 +106,7 @@ pub fn merge(from child: Card, to parent: Card) -> Result(Card, MergeError) {
     return: Error(MergeCannotMergeToSelf),
   )
 
-  let delimiter =
-    "\n"
-    |> string.append(to: _, suffix: string.repeat("-", 4))
-    |> string.append(to: _, suffix: "\n")
+  let delimiter = "\n" <> string.repeat("-", 4) <> "\n"
 
   let merged_content =
     nes.append(

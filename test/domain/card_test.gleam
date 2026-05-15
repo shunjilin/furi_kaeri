@@ -111,7 +111,7 @@ pub fn merge_card_test() {
   let expected_content =
     f.non_empty_string(
       nes.to_string(card.content(parent))
-      |> string.append(to: _, suffix: "\n----")
+      |> string.append(to: _, suffix: "\n----\n")
       |> string.append(to: _, suffix: nes.to_string(card.content(child))),
     )
 
