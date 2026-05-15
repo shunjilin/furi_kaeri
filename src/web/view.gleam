@@ -554,6 +554,10 @@ fn render_card(card: CardView) -> Element(Msg) {
           attribute.class("card"),
           attribute.data("dropzone", "true"),
           attribute.draggable(True),
+          attribute.data(
+            "confirm",
+            "Are you sure you want to merge these cards?",
+          ),
           event.advanced(
             "dragstart",
             decode.success(event.handler(
