@@ -168,11 +168,8 @@ h2 {
 }
 
 .center {
-    box-sizing: content-box;
-    max-inline-size: var(--max, 60ch);
     margin-inline: auto;
-    padding-inline-start: var(--space-1);
-    padding-inline-end: var(--space-1);
+    width: fit-content;
 }
 
 /* 
@@ -205,6 +202,10 @@ h2 {
 .card[draggable='true']:hover {
     background-color: var(--color-bg-secondary-tint);
     cursor: grab;
+}
+
+.lane {
+    width: var(--card-width);
 }
 
 button.button {

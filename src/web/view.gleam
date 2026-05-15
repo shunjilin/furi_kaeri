@@ -486,24 +486,16 @@ fn view(model: Model) -> Element(Msg) {
 }
 
 fn render_lane(lane: LaneView, phase: phase.Phase) -> Element(Msg) {
-  html.div(
-    [
-      attribute.style("--background-color", "var(--color-bg-secondary)"),
-    ],
-    [
-      html.div([attribute.class("stack")], [
-        html.h2([], [html.text(lane.title)]),
-        maybe_render(render_add_card(lane.id, lane.draft), phase == phase.Draft),
-        maybe_render(
-          html.div(
-            [attribute.class("stack")],
-            list.map(lane.cards, render_card),
-          ),
-          lane.cards != [],
-        ),
-      ]),
-    ],
-  )
+  html.div([attribute.class("lane")], [
+    html.div([attribute.class("stack")], [
+      html.h2([], [html.text(lane.title)]),
+      maybe_render(render_add_card(lane.id, lane.draft), phase == phase.Draft),
+      maybe_render(
+        html.div([attribute.class("stack")], list.map(lane.cards, render_card)),
+        lane.cards != [],
+      ),
+    ]),
+  ])
 }
 
 fn maybe_render(element: Element(a), bool: Bool) -> Element(a) {
