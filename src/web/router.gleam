@@ -69,8 +69,8 @@ pub fn handle_request(
   }
 
   case request.path_segments(req) {
-    [] -> serve_html(user_result, "default")
-    ["board", board_id] -> serve_html(user_result, board_id)
+    [] -> serve_board_page(user_result, "default")
+    ["board", board_id] -> serve_board_page(user_result, board_id)
     ["static", "css", "main.css"] ->
       serve_static("priv/static/css/main.css", "text/css")
     ["static", "js", "client.mjs"] ->
@@ -105,7 +105,7 @@ fn serve_static(path: String, mime_type: String) -> Response(ResponseData) {
   |> result.lazy_unwrap(fn() { not_found() })
 }
 
-fn serve_html(
+fn serve_board_page(
   user_result: GetUserResult,
   board_id: String,
 ) -> Response(ResponseData) {
