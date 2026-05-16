@@ -17,14 +17,14 @@ import lustre/element/html.{html}
 import lustre/server_component
 import mist.{type Connection, type ResponseData}
 import web/group_manager
-import web/view
+import web/views/board as board_view
 import youid/uuid
 
 const user_id_key: String = "user_id"
 
 pub type Context {
   Context(
-    registry: GroupRegistry(view.SharedMsg),
+    registry: GroupRegistry(board_view.SharedMsg),
     group_manager: Subject(group_manager.Message),
   )
 }
@@ -69,8 +69,9 @@ pub fn handle_request(
   }
 
   case request.path_segments(req) {
-    [] -> serve_board_page(user_result, "default")
-    ["board", board_id] -> serve_board_page(user_result, board_id)
+    [] -> serve_page(user_result, "default")
+    ["board", board_id] ->
+      serve_page(user_result, "/board/" <> board_id <> "/ws")
     ["static", "css", "main.css"] ->
       serve_static("priv/static/css/main.css", "text/css")
     ["static", "js", "client.mjs"] ->
@@ -105,59 +106,63 @@ fn serve_static(path: String, mime_type: String) -> Response(ResponseData) {
   |> result.lazy_unwrap(fn() { not_found() })
 }
 
-fn serve_board_page(
+fn serve_page(
   user_result: GetUserResult,
-  board_id: String,
+  ws_route: String,
 ) -> Response(ResponseData) {
-  let body =
-    html([attribute.lang("en")], [
-      html.head([], [
-        html.link([
-          attribute.rel("stylesheet"),
-          attribute.href("/static/css/main.css"),
-        ]),
-        html.meta([attribute.charset("utf-8")]),
-        html.meta([
-          attribute.name("viewport"),
-          attribute.content("width=device-width"),
-        ]),
-        html.title([], "Furi Kaeri"),
-        html.script(
-          [attribute.type_("module"), attribute.src("/lustre/runtime.mjs")],
-          "",
-        ),
-        html.script(
-          [attribute.type_("module"), attribute.src("/static/js/client.mjs")],
-          "",
-        ),
-      ]),
-      html.body([attribute.style("height", "100dvh")], [
-        server_component.element(
-          [server_component.route("/board/" <> board_id <> "/ws")],
-          [],
-        ),
-      ]),
-    ])
-    |> element.to_document_string_tree
-    |> bytes_tree.from_string_tree
-
+  let html_tree = construct_html_tree(ws_route)
   response.new(200)
-  |> response.set_body(mist.Bytes(body))
+  |> response.set_body(mist.Bytes(html_tree))
   |> response.set_header("content-type", "text/html")
-  |> fn(res) {
-    case user_result {
-      NewUser(user) -> {
-        let user.UserId(uuid) = user.id(user)
-        response.set_cookie(
-          res,
-          user_id_key,
-          uuid.to_string(uuid),
-          cookie_attributes(),
-        )
-      }
-      ExistingUser(_) -> {
-        res
-      }
+  |> assign_user(user_result)
+}
+
+fn construct_html_tree(ws_route: String) -> bytes_tree.BytesTree {
+  html([attribute.lang("en")], [
+    html.head([], [
+      html.link([
+        attribute.rel("stylesheet"),
+        attribute.href("/static/css/main.css"),
+      ]),
+      html.meta([attribute.charset("utf-8")]),
+      html.meta([
+        attribute.name("viewport"),
+        attribute.content("width=device-width"),
+      ]),
+      html.title([], "Furi Kaeri"),
+      html.script(
+        [attribute.type_("module"), attribute.src("/lustre/runtime.mjs")],
+        "",
+      ),
+      html.script(
+        [attribute.type_("module"), attribute.src("/static/js/client.mjs")],
+        "",
+      ),
+    ]),
+    html.body([attribute.style("height", "100dvh")], [
+      server_component.element([server_component.route(ws_route)], []),
+    ]),
+  ])
+  |> element.to_document_string_tree
+  |> bytes_tree.from_string_tree
+}
+
+fn assign_user(
+  response: Response(ResponseData),
+  user_result: GetUserResult,
+) -> Response(ResponseData) {
+  case user_result {
+    NewUser(user) -> {
+      let user.UserId(uuid) = user.id(user)
+      response.set_cookie(
+        response,
+        user_id_key,
+        uuid.to_string(uuid),
+        cookie_attributes(),
+      )
+    }
+    ExistingUser(_) -> {
+      response
     }
   }
 }
@@ -185,7 +190,7 @@ fn serve_board(
     request: req,
     on_init: fn(_conn) {
       let board_manager = group_manager.get_board(ctx.group_manager, board_id)
-      let component = view.component(board_manager, user, board_id)
+      let component = board_view.component(board_manager, user, board_id)
       let assert Ok(runtime) =
         lustre.start_server_component(component, ctx.registry)
 
@@ -203,8 +208,8 @@ fn serve_board(
 
 type SocketState {
   SocketState(
-    runtime: lustre.Runtime(view.Msg),
-    self: Subject(server_component.ClientMessage(view.Msg)),
+    runtime: lustre.Runtime(board_view.Msg),
+    self: Subject(server_component.ClientMessage(board_view.Msg)),
   )
 }
 
