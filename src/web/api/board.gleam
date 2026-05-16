@@ -4,111 +4,103 @@ import domain/lane
 import domain/user
 import domain/values/non_empty_string
 import domain/vote
+import gleam/dict
 import gleam/erlang/process.{type Subject}
 import gleam/function
 import gleam/otp/actor
 import gleam/result
+import web/shared_message
+
+pub type State {
+  State(
+    board: board.Board,
+    subscribers: dict.Dict(String, Subject(shared_message.SharedMsg)),
+  )
+}
 
 pub type Message {
   GetBoard(reply_to: Subject(board.Board))
-  AddCard(
-    user_id: user.UserId,
-    lane_id: lane.LaneId,
-    content: String,
-    reply_to: Subject(Result(board.Board, String)),
-  )
-  EditCard(
-    user_id: user.UserId,
-    card_id: card.CardId,
-    content: String,
-    reply_to: Subject(Result(board.Board, String)),
-  )
-  RemoveCard(
-    user_id: user.UserId,
-    card_id: card.CardId,
-    reply_to: Subject(Result(board.Board, String)),
-  )
-  MergeCard(
-    from_card_id: card.CardId,
-    to_card_id: card.CardId,
-    reply_to: Subject(Result(board.Board, String)),
-  )
-  Vote(
-    user_id: user.UserId,
-    card_id: card.CardId,
-    reply_to: Subject(Result(board.Board, String)),
-  )
-  RemoveVote(
-    user_id: user.UserId,
-    card_id: card.CardId,
-    reply_to: Subject(Result(board.Board, String)),
-  )
-  RevealBoard(reply_to: Subject(Result(board.Board, String)))
-  StartVoting(reply_to: Subject(Result(board.Board, String)))
+  AddCard(user_id: user.UserId, lane_id: lane.LaneId, content: String)
+  EditCard(user_id: user.UserId, card_id: card.CardId, content: String)
+  RemoveCard(user_id: user.UserId, card_id: card.CardId)
+  MergeCard(from_card_id: card.CardId, to_card_id: card.CardId)
+  Vote(user_id: user.UserId, card_id: card.CardId)
+  RemoveVote(user_id: user.UserId, card_id: card.CardId)
+  RevealBoard
+  StartVoting
+  Subscribe(id: String, client: Subject(shared_message.SharedMsg))
+  Unsubscribe(id: String)
 }
 
 pub fn start_link(
   id: String,
 ) -> Result(actor.Started(Subject(Message)), actor.StartError) {
-  id
-  |> init_board()
+  State(board: init_board(id), subscribers: dict.new())
   |> actor.new
   |> actor.on_message(handle_message)
   |> actor.start
 }
 
-fn handle_message(
-  board: board.Board,
-  message: Message,
-) -> actor.Next(board.Board, Message) {
+fn handle_message(state: State, message: Message) -> actor.Next(State, Message) {
   case message {
-    GetBoard(reply_to) -> handle_get_board(board, reply_to)
-    AddCard(user_id, lane_id, content, reply_to) -> {
-      board
+    GetBoard(reply_to) -> handle_get_board(state, reply_to)
+    AddCard(user_id, lane_id, content) -> {
+      state.board
       |> do_add_card(user_id, lane_id, content)
-      |> respond(board, reply_to)
+      |> respond(state)
     }
-    EditCard(user_id, card_id, content, reply_to) -> {
-      board
+    EditCard(user_id, card_id, content) -> {
+      state.board
       |> do_edit_card(user_id, card_id, content)
-      |> respond(board, reply_to)
+      |> respond(state)
     }
-    RemoveCard(user_id, card_id, reply_to) -> {
-      board
+    RemoveCard(user_id, card_id) -> {
+      state.board
       |> do_remove_card(user_id, card_id)
-      |> respond(board, reply_to)
+      |> respond(state)
     }
-    MergeCard(from_card_id, to_card_id, reply_to) -> {
-      board
+    MergeCard(from_card_id, to_card_id) -> {
+      state.board
       |> do_merge_card(from_card_id, to_card_id)
-      |> respond(board, reply_to)
+      |> respond(state)
     }
-    Vote(user_id, card_id, reply_to) -> {
-      board
+    Vote(user_id, card_id) -> {
+      state.board
       |> do_vote(user_id, card_id)
-      |> respond(board, reply_to)
+      |> respond(state)
     }
-    RemoveVote(user_id, card_id, reply_to) -> {
-      board
+    RemoveVote(user_id, card_id) -> {
+      state.board
       |> do_remove_vote(user_id, card_id)
-      |> respond(board, reply_to)
+      |> respond(state)
     }
-    RevealBoard(reply_to) -> {
-      board
+    RevealBoard -> {
+      state.board
       |> do_reveal_board()
-      |> respond(board, reply_to)
+      |> respond(state)
     }
-    StartVoting(reply_to) -> {
-      board
+    StartVoting -> {
+      state.board
       |> do_start_voting()
-      |> respond(board, reply_to)
+      |> respond(state)
+    }
+    Subscribe(id, client) -> {
+      let subscribers = dict.insert(state.subscribers, id, client)
+      let next_state = State(..state, subscribers:)
+      actor.continue(next_state)
+    }
+
+    Unsubscribe(id) -> {
+      let subscribers = dict.delete(state.subscribers, id)
+      let next_state = State(..state, subscribers:)
+      actor.continue(next_state)
     }
   }
 }
 
-fn handle_get_board(board: board.Board, reply_to: Subject(board.Board)) {
-  process.send(reply_to, board)
-  actor.continue(board)
+fn handle_get_board(state: State, reply_to: Subject(board.Board)) {
+  process.send(reply_to, state.board)
+  actor.continue(state)
 }
 
 fn do_merge_card(
@@ -256,17 +248,20 @@ fn new_string(str: String) {
 
 fn respond(
   result: Result(board.Board, String),
-  original_board: board.Board,
-  reply_to: Subject(Result(board.Board, String)),
-) -> actor.Next(board.Board, Message) {
+  state: State,
+) -> actor.Next(State, Message) {
   case result {
     Ok(updated_board) -> {
-      process.send(reply_to, Ok(updated_board))
-      actor.continue(updated_board)
+      dict.each(state.subscribers, fn(_, sub) {
+        process.send(sub, shared_message.ApiReturnedBoard(updated_board))
+      })
+      actor.continue(State(..state, board: updated_board))
     }
     Error(message) -> {
-      process.send(reply_to, Error(message))
-      actor.continue(original_board)
+      dict.each(state.subscribers, fn(_, sub) {
+        process.send(sub, shared_message.ApiReturnedError(message))
+      })
+      actor.continue(state)
     }
   }
 }

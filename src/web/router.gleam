@@ -10,13 +10,13 @@ import gleam/json
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/result
-import group_registry.{type GroupRegistry}
 import lustre
 import lustre/attribute
 import lustre/element
 import lustre/element/html.{html}
 import lustre/server_component
 import mist.{type Connection, type ResponseData}
+import web/api/board as board_api
 import web/group_manager
 import web/views/board as board_view
 import youid/uuid
@@ -24,10 +24,7 @@ import youid/uuid
 const user_id_key: String = "user_id"
 
 pub type Context {
-  Context(
-    registry: GroupRegistry(board_view.SharedMsg),
-    group_manager: Subject(group_manager.Message),
-  )
+  Context(group_manager: Subject(group_manager.Message))
 }
 
 type GetUserResult {
@@ -252,20 +249,25 @@ fn serve_board_page(
     Ok(board_manager) -> {
       mist.websocket(
         request: req,
-        on_init: fn(_conn) {
-          let component = board_view.component(board_manager, user, board_id)
-          let assert Ok(runtime) =
-            lustre.start_server_component(component, ctx.registry)
+        on_init: fn(_) {
+          let connection_id = uuid.v7() |> uuid.to_string()
+          let component =
+            board_view.component(board_manager, user, board_id, connection_id)
+          let assert Ok(runtime) = lustre.start_server_component(component, Nil)
 
           let self = process.new_subject()
           let selector = process.new_selector() |> process.select(self)
 
           server_component.register_subject(self) |> lustre.send(to: runtime)
 
-          #(SocketState(runtime, self), Some(selector))
+          #(SocketState(runtime, connection_id), Some(selector))
         },
         handler: loop_socket,
         on_close: fn(state) {
+          process.send(
+            board_manager,
+            board_api.Unsubscribe(state.connection_id),
+          )
           lustre.shutdown() |> lustre.send(to: state.runtime)
         },
       )
@@ -278,10 +280,7 @@ fn serve_board_page(
 }
 
 type SocketState {
-  SocketState(
-    runtime: lustre.Runtime(board_view.Msg),
-    self: Subject(server_component.ClientMessage(board_view.Msg)),
-  )
+  SocketState(runtime: lustre.Runtime(board_view.Msg), connection_id: String)
 }
 
 fn loop_socket(state: SocketState, msg, conn) {

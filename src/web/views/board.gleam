@@ -14,7 +14,6 @@ import gleam/list
 import gleam/option
 import gleam/result
 import gleam/string
-import group_registry.{type GroupRegistry}
 import lustre.{type App}
 import lustre/attribute
 import lustre/effect.{type Effect}
@@ -23,6 +22,7 @@ import lustre/element/html
 import lustre/event
 import lustre/server_component
 import web/api/board as board_api
+import web/shared_message
 import youid/uuid
 
 pub type CardView {
@@ -190,13 +190,12 @@ pub type Model {
     cards_under_edit: CardsUnderEdit,
     card_under_drag: option.Option(CardUnderDrag),
     user: user.User,
-    registry: GroupRegistry(SharedMsg),
     manager: Subject(board_api.Message),
   )
 }
 
 pub opaque type Msg {
-  AppReceivedSharedMsg(SharedMsg)
+  AppReceivedSharedMsg(shared_message.SharedMsg)
   UserUpdatedDraftCard(lane_id: lane.LaneId, content: String)
   UserSetEditCard(lane_id: lane.LaneId, card_id: card.CardId, content: String)
   UserUnsetEditCard(lane_id: lane.LaneId, card_id: card.CardId)
@@ -214,28 +213,28 @@ pub opaque type Msg {
   UserStartedVoting
   UserAddedCardVote(card_id: card.CardId)
   UserRemovedCardVote(card_id: card.CardId)
-  UserUpdatedBoard(board: board.Board)
   UserReceivedError(String)
   UserCrashedApp
-}
-
-pub opaque type SharedMsg {
-  ApiReturnedBoard(board: board.Board)
 }
 
 pub fn component(
   manager: Subject(board_api.Message),
   user: user.User,
   board_id: String,
-) -> App(GroupRegistry(SharedMsg), Model, Msg) {
-  lustre.application(init(_, manager, user, board_id), update, view)
+  connection_id: String,
+) -> App(Nil, Model, Msg) {
+  lustre.application(
+    fn(_) { init(manager, user, board_id, connection_id) },
+    update,
+    view,
+  )
 }
 
 fn init(
-  registry: GroupRegistry(SharedMsg),
   manager: Subject(board_api.Message),
   user: user.User,
   board_id: String,
+  connection_id: String,
 ) -> #(Model, Effect(Msg)) {
   let self = process.new_subject()
 
@@ -252,12 +251,19 @@ fn init(
       cards_under_draft: dict.new(),
       cards_under_edit: dict.new(),
       user: user,
-      registry: registry,
       manager: manager,
       card_under_drag: option.None,
     )
 
-  #(model, subscribe(registry, board.id(initial_board), AppReceivedSharedMsg))
+  let pubsub_effect = {
+    use _, subject <- server_component.select
+    process.send(manager, board_api.Subscribe(connection_id, subject))
+
+    process.new_selector()
+    |> process.select_map(subject, AppReceivedSharedMsg)
+  }
+
+  #(model, pubsub_effect)
 }
 
 fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
@@ -267,16 +273,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       process.kill(pid)
       #(model, effect.none())
     }
-    UserUpdatedBoard(updated_board) -> {
-      #(
-        model,
-        broadcast(
-          model.registry,
-          board.id(model.board),
-          ApiReturnedBoard(updated_board),
-        ),
-      )
-    }
+
     UserUpdatedDraftCard(lane_id, content) -> {
       let cards_under_draft =
         update_draft(model.cards_under_draft, lane_id, content)
@@ -299,40 +296,30 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     }
     UserAddedCard(lane_id, content) -> {
       let effect =
-        effect.from(fn(dispatch) {
-          let result =
-            process.call(model.manager, 1000, fn(reply_to) {
-              board_api.AddCard(
-                user_id: user.id(model.user),
-                lane_id: lane_id,
-                content: content,
-                reply_to: reply_to,
-              )
-            })
-          case result {
-            Ok(updated_board) -> dispatch(UserUpdatedBoard(updated_board))
-            Error(error) -> dispatch(UserReceivedError(error))
-          }
+        effect.from(fn(_) {
+          process.send(
+            model.manager,
+            board_api.AddCard(
+              user_id: user.id(model.user),
+              lane_id: lane_id,
+              content: content,
+            ),
+          )
         })
       let cards_under_draft = update_draft(model.cards_under_draft, lane_id, "")
       #(Model(..model, cards_under_draft:), effect)
     }
     UserEditedCard(lane_id, card_id, content) -> {
       let effect =
-        effect.from(fn(dispatch) {
-          let result =
-            process.call(model.manager, 1000, fn(reply_to) {
-              board_api.EditCard(
-                user_id: user.id(model.user),
-                card_id: card_id,
-                content: content,
-                reply_to: reply_to,
-              )
-            })
-          case result {
-            Ok(updated_board) -> dispatch(UserUpdatedBoard(updated_board))
-            Error(error) -> dispatch(UserReceivedError(error))
-          }
+        effect.from(fn(_) {
+          process.send(
+            model.manager,
+            board_api.EditCard(
+              user_id: user.id(model.user),
+              card_id: card_id,
+              content: content,
+            ),
+          )
         })
       let cards_under_edit =
         unset_edit_card(model.cards_under_edit, lane_id, card_id)
@@ -340,34 +327,18 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     }
     UserDeletedCard(card_id) -> {
       let effect =
-        effect.from(fn(dispatch) {
-          let result =
-            process.call(model.manager, 1000, fn(reply_to) {
-              board_api.RemoveCard(
-                user_id: user.id(model.user),
-                card_id: card_id,
-                reply_to: reply_to,
-              )
-            })
-          case result {
-            Ok(updated_board) -> dispatch(UserUpdatedBoard(updated_board))
-            Error(error) -> dispatch(UserReceivedError(error))
-          }
+        effect.from(fn(_) {
+          process.send(
+            model.manager,
+            board_api.RemoveCard(user_id: user.id(model.user), card_id: card_id),
+          )
         })
+
       #(model, effect)
     }
     UserRevealedBoard -> {
       let effect =
-        effect.from(fn(dispatch) {
-          let result =
-            process.call(model.manager, 1000, fn(reply_to) {
-              board_api.RevealBoard(reply_to: reply_to)
-            })
-          case result {
-            Ok(updated_board) -> dispatch(UserUpdatedBoard(updated_board))
-            Error(error) -> dispatch(UserReceivedError(error))
-          }
-        })
+        effect.from(fn(_) { process.send(model.manager, board_api.RevealBoard) })
 
       #(model, effect)
     }
@@ -382,15 +353,11 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         option.None -> #(model, effect.none())
         option.Some(CardUnderDrag(from_card_id)) -> {
           let effect =
-            effect.from(fn(dispatch) {
-              let result =
-                process.call(model.manager, 1000, fn(reply_to) {
-                  board_api.MergeCard(from_card_id, to_card_id, reply_to)
-                })
-              case result {
-                Ok(updated_board) -> dispatch(UserUpdatedBoard(updated_board))
-                Error(error) -> dispatch(UserReceivedError(error))
-              }
+            effect.from(fn(_) {
+              process.send(
+                model.manager,
+                board_api.MergeCard(from_card_id, to_card_id),
+              )
             })
 
           #(model, effect)
@@ -399,49 +366,27 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     }
     UserStartedVoting -> {
       let effect =
-        effect.from(fn(dispatch) {
-          let result =
-            process.call(model.manager, 1000, fn(reply_to) {
-              board_api.StartVoting(reply_to: reply_to)
-            })
-          case result {
-            Ok(updated_board) -> dispatch(UserUpdatedBoard(updated_board))
-            Error(error) -> dispatch(UserReceivedError(error))
-          }
-        })
+        effect.from(fn(_) { process.send(model.manager, board_api.StartVoting) })
 
       #(model, effect)
     }
     UserAddedCardVote(card_id) -> {
       let effect =
-        effect.from(fn(dispatch) {
-          let result =
-            process.call(model.manager, 1000, fn(reply_to) {
-              board_api.Vote(user.id(model.user), card_id, reply_to: reply_to)
-            })
-          case result {
-            Ok(updated_board) -> dispatch(UserUpdatedBoard(updated_board))
-            Error(error) -> dispatch(UserReceivedError(error))
-          }
+        effect.from(fn(_) {
+          process.send(
+            model.manager,
+            board_api.Vote(user.id(model.user), card_id),
+          )
         })
-
       #(model, effect)
     }
     UserRemovedCardVote(card_id) -> {
       let effect =
-        effect.from(fn(dispatch) {
-          let result =
-            process.call(model.manager, 1000, fn(reply_to) {
-              board_api.RemoveVote(
-                user.id(model.user),
-                card_id,
-                reply_to: reply_to,
-              )
-            })
-          case result {
-            Ok(updated_board) -> dispatch(UserUpdatedBoard(updated_board))
-            Error(error) -> dispatch(UserReceivedError(error))
-          }
+        effect.from(fn(_) {
+          process.send(
+            model.manager,
+            board_api.RemoveVote(user.id(model.user), card_id),
+          )
         })
 
       #(model, effect)
@@ -450,8 +395,11 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       io.println(err)
       #(model, effect.none())
     }
-    AppReceivedSharedMsg(ApiReturnedBoard(updated_board)) -> {
+    AppReceivedSharedMsg(shared_message.ApiReturnedBoard(updated_board)) -> {
       #(Model(..model, board: updated_board), effect.none())
+    }
+    AppReceivedSharedMsg(shared_message.ApiReturnedError(_error)) -> {
+      #(model, effect.none())
     }
   }
 }
@@ -718,23 +666,4 @@ fn render_card(card: CardView) -> Element(Msg) {
       )
     }
   }
-}
-
-fn subscribe(
-  registry: GroupRegistry(remote_message),
-  board_id: String,
-  msg_wrapper: fn(remote_message) -> local_message,
-) -> Effect(local_message) {
-  use _, _ <- server_component.select
-  let subject = group_registry.join(registry, board_id, process.self())
-  process.new_selector() |> process.select_map(subject, msg_wrapper)
-}
-
-fn broadcast(
-  registry: GroupRegistry(remote_message),
-  board_id: String,
-  msg: remote_message,
-) -> Effect(any) {
-  use _ <- effect.from
-  list.each(group_registry.members(registry, board_id), process.send(_, msg))
 }
