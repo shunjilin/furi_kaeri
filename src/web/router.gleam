@@ -2,6 +2,7 @@ import domain/user
 import gleam/bytes_tree
 import gleam/erlang/application
 import gleam/erlang/process.{type Subject}
+import gleam/http
 import gleam/http/cookie
 import gleam/http/request.{type Request}
 import gleam/http/response.{type Response}
@@ -68,17 +69,27 @@ pub fn handle_request(
     ExistingUser(user) -> user
   }
 
-  case request.path_segments(req) {
-    [] -> serve_page(user_result, "default")
-    ["board", board_id] ->
-      serve_page(user_result, "/board/" <> board_id <> "/ws")
-    ["static", "css", "main.css"] ->
+  case request.path_segments(req), req.method {
+    [], http.Get -> serve_landing_layout() |> serve_page(user_result)
+    ["board", board_id], http.Get -> {
+      case group_manager.get_board(ctx.group_manager, board_id) {
+        Ok(_) -> serve_board_layout(board_id) |> serve_page(user_result)
+        Error(group_manager.BoardDoesNotExist) ->
+          response.new(404)
+          |> response.set_body(
+            mist.Bytes(bytes_tree.from_string("Board not found.")),
+          )
+      }
+    }
+    ["board", "create"], http.Post -> handle_create_board(ctx)
+    ["static", "css", "main.css"], http.Get ->
       serve_static("priv/static/css/main.css", "text/css")
-    ["static", "js", "client.mjs"] ->
+    ["static", "js", "client.mjs"], http.Get ->
       serve_static("priv/static/js/client.mjs", "text/javascript")
-    ["lustre", "runtime.mjs"] -> serve_runtime()
-    ["board", board_id, "ws"] -> serve_board(req, ctx, user, board_id)
-    _ -> not_found()
+    ["lustre", "runtime.mjs"], http.Get -> serve_runtime()
+    ["board", board_id, "ws"], http.Get ->
+      serve_board_page(req, ctx, user, board_id)
+    _, _ -> not_found()
   }
 }
 
@@ -95,6 +106,23 @@ fn cookie_attributes() {
   )
 }
 
+fn handle_create_board(ctx: Context) -> Response(ResponseData) {
+  let board_id = uuid.v7() |> uuid.to_string()
+  case group_manager.create_board(ctx.group_manager, board_id) {
+    Ok(_) -> {
+      response.new(303)
+      |> response.set_header("location", "/board/" <> board_id)
+      |> response.set_body(mist.Bytes(bytes_tree.new()))
+    }
+    Error(group_manager.BoardAlreadyExist) -> {
+      response.new(500)
+      |> response.set_body(
+        mist.Bytes(bytes_tree.from_string("Failed to create board.")),
+      )
+    }
+  }
+}
+
 fn serve_static(path: String, mime_type: String) -> Response(ResponseData) {
   mist.send_file(path, offset: 0, limit: None)
   |> result.map(fn(file) {
@@ -107,17 +135,60 @@ fn serve_static(path: String, mime_type: String) -> Response(ResponseData) {
 }
 
 fn serve_page(
+  html_body: bytes_tree.BytesTree,
   user_result: GetUserResult,
-  ws_route: String,
 ) -> Response(ResponseData) {
-  let html_tree = construct_html_tree(ws_route)
   response.new(200)
-  |> response.set_body(mist.Bytes(html_tree))
+  |> response.set_body(mist.Bytes(html_body))
   |> response.set_header("content-type", "text/html")
   |> assign_user(user_result)
 }
 
-fn construct_html_tree(ws_route: String) -> bytes_tree.BytesTree {
+fn serve_board_layout(board_id: String) -> bytes_tree.BytesTree {
+  let ws_route = "/board/" <> board_id <> "/ws"
+
+  let extra_head = [
+    html.script(
+      [attribute.type_("module"), attribute.src("/lustre/runtime.mjs")],
+      "",
+    ),
+    html.script(
+      [attribute.type_("module"), attribute.src("/static/js/client.mjs")],
+      "",
+    ),
+  ]
+
+  let body_content = [
+    server_component.element([server_component.route(ws_route)], []),
+  ]
+
+  layout("Board", extra_head, body_content)
+}
+
+fn serve_landing_layout() -> bytes_tree.BytesTree {
+  let body_content = [
+    html.main([], [
+      html.h1([], [html.text("Welcome")]),
+      html.form([attribute.method("POST"), attribute.action("/board/create")], [
+        html.button(
+          [
+            attribute.type_("submit"),
+          ],
+          [html.text("Create New Board")],
+        ),
+      ]),
+    ]),
+  ]
+
+  // Pass an empty list for extra_head since it only needs core defaults
+  layout("Home", [], body_content)
+}
+
+fn layout(
+  title_suffix: String,
+  page_specific_head: List(element.Element(msg)),
+  body_content: List(element.Element(msg)),
+) -> bytes_tree.BytesTree {
   html([attribute.lang("en")], [
     html.head([], [
       html.link([
@@ -129,19 +200,10 @@ fn construct_html_tree(ws_route: String) -> bytes_tree.BytesTree {
         attribute.name("viewport"),
         attribute.content("width=device-width"),
       ]),
-      html.title([], "Furi Kaeri"),
-      html.script(
-        [attribute.type_("module"), attribute.src("/lustre/runtime.mjs")],
-        "",
-      ),
-      html.script(
-        [attribute.type_("module"), attribute.src("/static/js/client.mjs")],
-        "",
-      ),
+      html.title([], "Furi Kaeri - " <> title_suffix),
+      ..page_specific_head
     ]),
-    html.body([attribute.style("height", "100dvh")], [
-      server_component.element([server_component.route(ws_route)], []),
-    ]),
+    html.body([attribute.style("height", "100dvh")], body_content),
   ])
   |> element.to_document_string_tree
   |> bytes_tree.from_string_tree
@@ -180,7 +242,7 @@ fn serve_runtime() -> Response(ResponseData) {
   }
 }
 
-fn serve_board(
+fn serve_board_page(
   req: Request(Connection),
   ctx: Context,
   user: user.User,
@@ -189,7 +251,10 @@ fn serve_board(
   mist.websocket(
     request: req,
     on_init: fn(_conn) {
-      let board_manager = group_manager.get_board(ctx.group_manager, board_id)
+      // we already guard in the router before serving the page
+      // so we can assert here
+      let assert Ok(board_manager) =
+        group_manager.get_board(ctx.group_manager, board_id)
       let component = board_view.component(board_manager, user, board_id)
       let assert Ok(runtime) =
         lustre.start_server_component(component, ctx.registry)
