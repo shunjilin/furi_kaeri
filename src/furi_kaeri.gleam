@@ -7,10 +7,10 @@ import web/group_manager
 import web/router
 
 pub fn main() -> Nil {
-  // let _ =
-  //   radiate.new()
-  //   |> radiate.add_dir(".")
-  //   |> radiate.start()
+  let _ =
+    radiate.new()
+    |> radiate.add_dir(".")
+    |> radiate.start()
 
   let name = process.new_name("board-registry")
   let assert Ok(actor.Started(data: registry, ..)) = group_registry.start(name)
