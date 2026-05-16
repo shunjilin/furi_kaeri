@@ -167,11 +167,11 @@ fn serve_board_layout(board_id: String) -> bytes_tree.BytesTree {
 
 fn serve_landing_layout() -> bytes_tree.BytesTree {
   let body_content = [
-    html.main([], [
-      html.h1([], [html.text("Welcome")]),
+    html.main([attribute.class("center")], [
       html.form([attribute.method("POST"), attribute.action("/board/create")], [
         html.button(
           [
+            attribute.class("button"),
             attribute.type_("submit"),
           ],
           [html.text("Create New Board")],
@@ -248,27 +248,33 @@ fn serve_board_page(
   user: user.User,
   board_id: String,
 ) -> Response(ResponseData) {
-  mist.websocket(
-    request: req,
-    on_init: fn(_conn) {
-      // we already guard in the router before serving the page
-      // so we can assert here
-      let assert Ok(board_manager) =
-        group_manager.get_board(ctx.group_manager, board_id)
-      let component = board_view.component(board_manager, user, board_id)
-      let assert Ok(runtime) =
-        lustre.start_server_component(component, ctx.registry)
+  case group_manager.get_board(ctx.group_manager, board_id) {
+    Ok(board_manager) -> {
+      mist.websocket(
+        request: req,
+        on_init: fn(_conn) {
+          let component = board_view.component(board_manager, user, board_id)
+          let assert Ok(runtime) =
+            lustre.start_server_component(component, ctx.registry)
 
-      let self = process.new_subject()
-      let selector = process.new_selector() |> process.select(self)
+          let self = process.new_subject()
+          let selector = process.new_selector() |> process.select(self)
 
-      server_component.register_subject(self) |> lustre.send(to: runtime)
+          server_component.register_subject(self) |> lustre.send(to: runtime)
 
-      #(SocketState(runtime, self), Some(selector))
-    },
-    handler: loop_socket,
-    on_close: fn(state) { lustre.shutdown() |> lustre.send(to: state.runtime) },
-  )
+          #(SocketState(runtime, self), Some(selector))
+        },
+        handler: loop_socket,
+        on_close: fn(state) {
+          lustre.shutdown() |> lustre.send(to: state.runtime)
+        },
+      )
+    }
+    Error(_) -> {
+      response.new(404)
+      |> response.set_body(mist.Bytes(bytes_tree.new()))
+    }
+  }
 }
 
 type SocketState {

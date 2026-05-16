@@ -216,6 +216,7 @@ pub opaque type Msg {
   UserRemovedCardVote(card_id: card.CardId)
   UserUpdatedBoard(board: board.Board)
   UserReceivedError(String)
+  UserCrashedApp
 }
 
 pub opaque type SharedMsg {
@@ -261,6 +262,11 @@ fn init(
 
 fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
   case msg {
+    UserCrashedApp -> {
+      let assert Ok(pid) = process.subject_owner(model.manager)
+      process.kill(pid)
+      #(model, effect.none())
+    }
     UserUpdatedBoard(updated_board) -> {
       #(
         model,
@@ -461,9 +467,17 @@ fn view(model: Model) -> Element(Msg) {
       phase,
     )
 
-  html.div([attribute.class("center")], [
+  html.div([attribute.class("horizontal-center")], [
     html.div([attribute.class("heading")], [
       html.h1([], [html.text(board_view.title)]),
+      html.button(
+        [
+          attribute.class("button"),
+          attribute.data("type", "delete"),
+          event.on_click(UserCrashedApp),
+        ],
+        [html.text("Crash Actor (For Testing)")],
+      ),
       maybe_render(
         html.button(
           [
