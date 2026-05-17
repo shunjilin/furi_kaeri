@@ -24,7 +24,7 @@ import youid/uuid
 const user_id_key: String = "user_id"
 
 pub type Context {
-  Context(group_manager: Subject(group_manager.Message))
+  Context(group_manager: process.Name(group_manager.Message))
 }
 
 type GetUserResult {
@@ -66,10 +66,11 @@ pub fn handle_request(
     ExistingUser(user) -> user
   }
 
+  let group_manager = process.named_subject(ctx.group_manager)
   case request.path_segments(req), req.method {
     [], http.Get -> serve_landing_layout() |> serve_page(user_result)
     ["board", board_id], http.Get -> {
-      case group_manager.get_board(ctx.group_manager, board_id) {
+      case group_manager.get_board(group_manager, board_id) {
         Ok(_) -> serve_board_layout(board_id) |> serve_page(user_result)
         Error(group_manager.BoardDoesNotExist) ->
           response.new(404)
@@ -78,14 +79,14 @@ pub fn handle_request(
           )
       }
     }
-    ["board", "create"], http.Post -> handle_create_board(ctx)
+    ["board", "create"], http.Post -> handle_create_board(group_manager)
     ["static", "css", "main.css"], http.Get ->
       serve_static("priv/static/css/main.css", "text/css")
     ["static", "js", "client.mjs"], http.Get ->
       serve_static("priv/static/js/client.mjs", "text/javascript")
     ["lustre", "runtime.mjs"], http.Get -> serve_runtime()
     ["board", board_id, "ws"], http.Get ->
-      serve_board_page(req, ctx, user, board_id)
+      serve_board_page(req, group_manager, user, board_id)
     _, _ -> not_found()
   }
 }
@@ -103,9 +104,11 @@ fn cookie_attributes() {
   )
 }
 
-fn handle_create_board(ctx: Context) -> Response(ResponseData) {
+fn handle_create_board(
+  group_manager: Subject(group_manager.Message),
+) -> Response(ResponseData) {
   let board_id = uuid.v7() |> uuid.to_string()
-  case group_manager.create_board(ctx.group_manager, board_id) {
+  case group_manager.create_board(group_manager, board_id) {
     Ok(_) -> {
       response.new(303)
       |> response.set_header("location", "/board/" <> board_id)
@@ -241,11 +244,11 @@ fn serve_runtime() -> Response(ResponseData) {
 
 fn serve_board_page(
   req: Request(Connection),
-  ctx: Context,
+  group_manager: Subject(group_manager.Message),
   user: user.User,
   board_id: String,
 ) -> Response(ResponseData) {
-  case group_manager.get_board(ctx.group_manager, board_id) {
+  case group_manager.get_board(group_manager, board_id) {
     Ok(board_manager) -> {
       mist.websocket(
         request: req,
