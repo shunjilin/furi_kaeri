@@ -25,22 +25,24 @@ pub type BoardApiMessage {
 }
 
 // Router Messages
-pub type RouterCreateError {
+pub type BoardRegistryCreateError {
   BoardAlreadyExist
 }
 
-pub type RouterGetError {
+pub type BoardRegistryGetError {
   BoardDoesNotExist
 }
 
-pub type RouterMessage {
-  RouterCreateBoard(
+pub type BoardRegistryMessage {
+  BoardRegistryCreateBoard(
     id: String,
-    reply_to: Subject(Result(Subject(BoardApiMessage), RouterCreateError)),
+    reply_to: Subject(
+      Result(Subject(BoardApiMessage), BoardRegistryCreateError),
+    ),
   )
-  RouterGetBoard(
+  BoardRegistryGetBoard(
     id: String,
-    reply_to: Subject(Result(Subject(BoardApiMessage), RouterGetError)),
+    reply_to: Subject(Result(Subject(BoardApiMessage), BoardRegistryGetError)),
   )
-  RouterRegisterBoard(id: String, subject: Subject(BoardApiMessage))
+  BoardRegistryRegisterBoard(id: String, subject: Subject(BoardApiMessage))
 }

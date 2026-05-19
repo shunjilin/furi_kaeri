@@ -9,7 +9,7 @@ import gleam/erlang/process.{type Subject}
 import gleam/function
 import gleam/otp/actor
 import gleam/result
-import web/shared.{type BoardApiMessage, type RouterMessage}
+import web/shared.{type BoardApiMessage, type BoardRegistryMessage}
 
 pub type State {
   State(
@@ -20,12 +20,12 @@ pub type State {
 
 pub fn start_link(
   id: String,
-  manager_name: process.Name(RouterMessage),
+  manager_name: process.Name(BoardRegistryMessage),
 ) -> Result(actor.Started(Subject(BoardApiMessage)), actor.StartError) {
   actor.new_with_initialiser(1000, fn(self_subject) {
     manager_name
     |> process.named_subject
-    |> process.send(shared.RouterRegisterBoard(id, self_subject))
+    |> process.send(shared.BoardRegistryRegisterBoard(id, self_subject))
 
     let initial_state = State(board: init_board(id), subscribers: dict.new())
     actor.initialised(initial_state)
