@@ -22,7 +22,7 @@ import lustre/element/html
 import lustre/event
 import lustre/server_component
 import web/api/board as board_api
-import web/shared_message
+import web/shared.{type BoardApiMessage}
 import youid/uuid
 
 pub type CardView {
@@ -190,12 +190,12 @@ pub type Model {
     cards_under_edit: CardsUnderEdit,
     card_under_drag: option.Option(CardUnderDrag),
     user: user.User,
-    manager: Subject(board_api.Message),
+    manager: Subject(BoardApiMessage),
   )
 }
 
 pub opaque type Msg {
-  AppReceivedSharedMsg(shared_message.SharedMsg)
+  AppReceivedSharedMsg(shared.SharedMsg)
   UserUpdatedDraftCard(lane_id: lane.LaneId, content: String)
   UserSetEditCard(lane_id: lane.LaneId, card_id: card.CardId, content: String)
   UserUnsetEditCard(lane_id: lane.LaneId, card_id: card.CardId)
@@ -218,7 +218,7 @@ pub opaque type Msg {
 }
 
 pub fn component(
-  manager: Subject(board_api.Message),
+  manager: Subject(BoardApiMessage),
   user: user.User,
   board_id: String,
   connection_id: String,
@@ -231,14 +231,14 @@ pub fn component(
 }
 
 fn init(
-  manager: Subject(board_api.Message),
+  manager: Subject(BoardApiMessage),
   user: user.User,
   board_id: String,
   connection_id: String,
 ) -> #(Model, Effect(Msg)) {
   let self = process.new_subject()
 
-  process.send(manager, board_api.GetBoard(reply_to: self))
+  process.send(manager, shared.GetBoard(reply_to: self))
 
   let initial_board = case process.receive(self, 1000) {
     Ok(board) -> board
@@ -257,7 +257,7 @@ fn init(
 
   let pubsub_effect = {
     use _, subject <- server_component.select
-    process.send(manager, board_api.Subscribe(connection_id, subject))
+    process.send(manager, shared.Subscribe(connection_id, subject))
 
     process.new_selector()
     |> process.select_map(subject, AppReceivedSharedMsg)
@@ -299,7 +299,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         effect.from(fn(_) {
           process.send(
             model.manager,
-            board_api.AddCard(
+            shared.AddCard(
               user_id: user.id(model.user),
               lane_id: lane_id,
               content: content,
@@ -314,7 +314,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         effect.from(fn(_) {
           process.send(
             model.manager,
-            board_api.EditCard(
+            shared.EditCard(
               user_id: user.id(model.user),
               card_id: card_id,
               content: content,
@@ -330,7 +330,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         effect.from(fn(_) {
           process.send(
             model.manager,
-            board_api.RemoveCard(user_id: user.id(model.user), card_id: card_id),
+            shared.RemoveCard(user_id: user.id(model.user), card_id: card_id),
           )
         })
 
@@ -338,7 +338,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     }
     UserRevealedBoard -> {
       let effect =
-        effect.from(fn(_) { process.send(model.manager, board_api.RevealBoard) })
+        effect.from(fn(_) { process.send(model.manager, shared.RevealBoard) })
 
       #(model, effect)
     }
@@ -356,7 +356,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
             effect.from(fn(_) {
               process.send(
                 model.manager,
-                board_api.MergeCard(from_card_id, to_card_id),
+                shared.MergeCard(from_card_id, to_card_id),
               )
             })
 
@@ -366,17 +366,14 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     }
     UserStartedVoting -> {
       let effect =
-        effect.from(fn(_) { process.send(model.manager, board_api.StartVoting) })
+        effect.from(fn(_) { process.send(model.manager, shared.StartVoting) })
 
       #(model, effect)
     }
     UserAddedCardVote(card_id) -> {
       let effect =
         effect.from(fn(_) {
-          process.send(
-            model.manager,
-            board_api.Vote(user.id(model.user), card_id),
-          )
+          process.send(model.manager, shared.Vote(user.id(model.user), card_id))
         })
       #(model, effect)
     }
@@ -385,7 +382,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         effect.from(fn(_) {
           process.send(
             model.manager,
-            board_api.RemoveVote(user.id(model.user), card_id),
+            shared.RemoveVote(user.id(model.user), card_id),
           )
         })
 
@@ -395,10 +392,10 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       io.println(err)
       #(model, effect.none())
     }
-    AppReceivedSharedMsg(shared_message.ApiReturnedBoard(updated_board)) -> {
+    AppReceivedSharedMsg(shared.ApiReturnedBoard(updated_board)) -> {
       #(Model(..model, board: updated_board), effect.none())
     }
-    AppReceivedSharedMsg(shared_message.ApiReturnedError(_error)) -> {
+    AppReceivedSharedMsg(shared.ApiReturnedError(_error)) -> {
       #(model, effect.none())
     }
   }

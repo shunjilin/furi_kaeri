@@ -20,7 +20,9 @@ pub fn main() -> Nil {
   let assert Ok(_) =
     supervisor.new(supervisor.OneForOne)
     |> supervisor.add(
-      factory.worker_child(board_api.start_link)
+      factory.worker_child(fn(id) {
+        board_api.start_link(id, group_manager_name)
+      })
       |> factory.named(board_factory_name)
       |> factory.supervised,
     )

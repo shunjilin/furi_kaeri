@@ -2,35 +2,26 @@ import gleam/dict.{type Dict}
 import gleam/erlang/process.{type Subject}
 import gleam/otp/actor
 import gleam/otp/factory_supervisor as factory
-import web/api/board as board_api
+import web/shared.{type BoardApiMessage, type RouterMessage}
 
-pub type CreateError {
-  BoardAlreadyExist
-}
+type Registry =
+  Dict(String, Subject(BoardApiMessage))
 
-pub type GetError {
-  BoardDoesNotExist
-}
-
-pub type Message {
-  CreateBoard(
-    id: String,
-    reply_to: Subject(Result(Subject(board_api.Message), CreateError)),
-  )
-  GetBoard(
-    id: String,
-    reply_to: Subject(Result(Subject(board_api.Message), GetError)),
-  )
+type State {
+  State(self: Subject(RouterMessage), registry: Registry)
 }
 
 pub fn start(
   board_factory_name: process.Name(
-    factory.Message(String, process.Subject(board_api.Message)),
+    factory.Message(String, process.Subject(BoardApiMessage)),
   ),
-  self_name: process.Name(Message),
-) {
-  dict.new()
-  |> actor.new
+  self_name: process.Name(RouterMessage),
+) -> Result(actor.Started(Subject(RouterMessage)), actor.StartError) {
+  actor.new_with_initialiser(1000, fn(subject) {
+    actor.initialised(State(self: subject, registry: dict.new()))
+    |> actor.returning(subject)
+    |> Ok
+  })
   |> actor.on_message(fn(state, msg) {
     handle_message(state, msg, board_factory_name)
   })
@@ -39,17 +30,17 @@ pub fn start(
 }
 
 fn handle_message(
-  state: Dict(String, Subject(board_api.Message)),
-  msg: Message,
+  state: State,
+  msg: RouterMessage,
   board_factory_name: process.Name(
-    factory.Message(String, process.Subject(board_api.Message)),
+    factory.Message(String, process.Subject(BoardApiMessage)),
   ),
 ) {
   case msg {
-    CreateBoard(id, reply_to) -> {
-      case dict.get(state, id) {
+    shared.RouterCreateBoard(id, reply_to) -> {
+      case dict.get(state.registry, id) {
         Ok(_) -> {
-          process.send(reply_to, Error(BoardAlreadyExist))
+          process.send(reply_to, Error(shared.BoardAlreadyExist))
           actor.continue(state)
         }
         Error(_) -> {
@@ -57,18 +48,23 @@ fn handle_message(
           case factory.start_child(board_factory_subject, id) {
             Ok(actor.Started(data: board_subject, ..)) -> {
               process.send(reply_to, Ok(board_subject))
-              actor.continue(dict.insert(state, id, board_subject))
+              actor.continue(
+                State(
+                  ..state,
+                  registry: dict.insert(state.registry, id, board_subject),
+                ),
+              )
             }
             Error(_) -> {
-              process.send(reply_to, Error(BoardAlreadyExist))
+              process.send(reply_to, Error(shared.BoardAlreadyExist))
               actor.continue(state)
             }
           }
         }
       }
     }
-    GetBoard(id, reply_to) -> {
-      case dict.get(state, id) {
+    shared.RouterGetBoard(id, reply_to) -> {
+      case dict.get(state.registry, id) {
         Ok(subject) -> {
           case check_subject_alive(subject) {
             True -> {
@@ -76,16 +72,23 @@ fn handle_message(
               actor.continue(state)
             }
             False -> {
-              process.send(reply_to, Error(BoardDoesNotExist))
-              actor.continue(dict.delete(state, id))
+              process.send(reply_to, Error(shared.BoardDoesNotExist))
+              actor.continue(
+                State(..state, registry: dict.delete(state.registry, id)),
+              )
             }
           }
         }
         Error(_) -> {
-          process.send(reply_to, Error(BoardDoesNotExist))
+          process.send(reply_to, Error(shared.BoardDoesNotExist))
           actor.continue(state)
         }
       }
+    }
+    shared.RouterRegisterBoard(id, subject) -> {
+      actor.continue(
+        State(..state, registry: dict.insert(state.registry, id, subject)),
+      )
     }
   }
 }
@@ -98,15 +101,15 @@ fn check_subject_alive(subject: Subject(a)) -> Bool {
 }
 
 pub fn create_board(
-  manager: Subject(Message),
+  manager: Subject(RouterMessage),
   id: String,
-) -> Result(Subject(board_api.Message), CreateError) {
-  process.call(manager, 1000, CreateBoard(id, _))
+) -> Result(Subject(BoardApiMessage), shared.RouterCreateError) {
+  process.call(manager, 1000, shared.RouterCreateBoard(id, _))
 }
 
 pub fn get_board(
-  manager: Subject(Message),
+  manager: Subject(RouterMessage),
   id: String,
-) -> Result(Subject(board_api.Message), GetError) {
-  process.call(manager, 1000, GetBoard(id, _))
+) -> Result(Subject(BoardApiMessage), shared.RouterGetError) {
+  process.call(manager, 1000, shared.RouterGetBoard(id, _))
 }

@@ -16,15 +16,15 @@ import lustre/element
 import lustre/element/html.{html}
 import lustre/server_component
 import mist.{type Connection, type ResponseData}
-import web/api/board as board_api
 import web/group_manager
+import web/shared.{type RouterMessage}
 import web/views/board as board_view
 import youid/uuid
 
 const user_id_key: String = "user_id"
 
 pub type Context {
-  Context(group_manager: process.Name(group_manager.Message))
+  Context(group_manager: process.Name(RouterMessage))
 }
 
 type GetUserResult {
@@ -72,7 +72,7 @@ pub fn handle_request(
     ["board", board_id], http.Get -> {
       case group_manager.get_board(group_manager, board_id) {
         Ok(_) -> serve_board_layout(board_id) |> serve_page(user_result)
-        Error(group_manager.BoardDoesNotExist) ->
+        Error(shared.BoardDoesNotExist) ->
           response.new(404)
           |> response.set_body(
             mist.Bytes(bytes_tree.from_string("Board not found.")),
@@ -105,7 +105,7 @@ fn cookie_attributes() {
 }
 
 fn handle_create_board(
-  group_manager: Subject(group_manager.Message),
+  group_manager: Subject(RouterMessage),
 ) -> Response(ResponseData) {
   let board_id = uuid.v7() |> uuid.to_string()
   case group_manager.create_board(group_manager, board_id) {
@@ -114,7 +114,7 @@ fn handle_create_board(
       |> response.set_header("location", "/board/" <> board_id)
       |> response.set_body(mist.Bytes(bytes_tree.new()))
     }
-    Error(group_manager.BoardAlreadyExist) -> {
+    Error(shared.BoardAlreadyExist) -> {
       response.new(500)
       |> response.set_body(
         mist.Bytes(bytes_tree.from_string("Failed to create board.")),
@@ -244,7 +244,7 @@ fn serve_runtime() -> Response(ResponseData) {
 
 fn serve_board_page(
   req: Request(Connection),
-  group_manager: Subject(group_manager.Message),
+  group_manager: Subject(RouterMessage),
   user: user.User,
   board_id: String,
 ) -> Response(ResponseData) {
@@ -267,10 +267,7 @@ fn serve_board_page(
         },
         handler: loop_socket,
         on_close: fn(state) {
-          process.send(
-            board_manager,
-            board_api.Unsubscribe(state.connection_id),
-          )
+          process.send(board_manager, shared.Unsubscribe(state.connection_id))
           lustre.shutdown() |> lustre.send(to: state.runtime)
         },
       )

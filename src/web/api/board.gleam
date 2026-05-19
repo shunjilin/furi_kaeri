@@ -9,88 +9,86 @@ import gleam/erlang/process.{type Subject}
 import gleam/function
 import gleam/otp/actor
 import gleam/result
-import web/shared_message
+import web/shared.{type BoardApiMessage, type RouterMessage}
 
 pub type State {
   State(
     board: board.Board,
-    subscribers: dict.Dict(String, Subject(shared_message.SharedMsg)),
+    subscribers: dict.Dict(String, Subject(shared.SharedMsg)),
   )
-}
-
-pub type Message {
-  GetBoard(reply_to: Subject(board.Board))
-  AddCard(user_id: user.UserId, lane_id: lane.LaneId, content: String)
-  EditCard(user_id: user.UserId, card_id: card.CardId, content: String)
-  RemoveCard(user_id: user.UserId, card_id: card.CardId)
-  MergeCard(from_card_id: card.CardId, to_card_id: card.CardId)
-  Vote(user_id: user.UserId, card_id: card.CardId)
-  RemoveVote(user_id: user.UserId, card_id: card.CardId)
-  RevealBoard
-  StartVoting
-  Subscribe(id: String, client: Subject(shared_message.SharedMsg))
-  Unsubscribe(id: String)
 }
 
 pub fn start_link(
   id: String,
-) -> Result(actor.Started(Subject(Message)), actor.StartError) {
-  State(board: init_board(id), subscribers: dict.new())
-  |> actor.new
+  manager_name: process.Name(RouterMessage),
+) -> Result(actor.Started(Subject(BoardApiMessage)), actor.StartError) {
+  actor.new_with_initialiser(1000, fn(self_subject) {
+    manager_name
+    |> process.named_subject
+    |> process.send(shared.RouterRegisterBoard(id, self_subject))
+
+    let initial_state = State(board: init_board(id), subscribers: dict.new())
+    actor.initialised(initial_state)
+    |> actor.returning(self_subject)
+    |> Ok
+  })
   |> actor.on_message(handle_message)
   |> actor.start
 }
 
-fn handle_message(state: State, message: Message) -> actor.Next(State, Message) {
+fn handle_message(
+  state: State,
+  message: BoardApiMessage,
+) -> actor.Next(State, BoardApiMessage) {
   case message {
-    GetBoard(reply_to) -> handle_get_board(state, reply_to)
-    AddCard(user_id, lane_id, content) -> {
+    shared.GetBoard(reply_to) -> handle_get_board(state, reply_to)
+    shared.AddCard(user_id, lane_id, content) -> {
       state.board
       |> do_add_card(user_id, lane_id, content)
       |> respond(state)
     }
-    EditCard(user_id, card_id, content) -> {
+    shared.EditCard(user_id, card_id, content) -> {
       state.board
       |> do_edit_card(user_id, card_id, content)
       |> respond(state)
     }
-    RemoveCard(user_id, card_id) -> {
+    shared.RemoveCard(user_id, card_id) -> {
       state.board
       |> do_remove_card(user_id, card_id)
       |> respond(state)
     }
-    MergeCard(from_card_id, to_card_id) -> {
+    shared.MergeCard(from_card_id, to_card_id) -> {
       state.board
       |> do_merge_card(from_card_id, to_card_id)
       |> respond(state)
     }
-    Vote(user_id, card_id) -> {
+    shared.Vote(user_id, card_id) -> {
       state.board
       |> do_vote(user_id, card_id)
       |> respond(state)
     }
-    RemoveVote(user_id, card_id) -> {
+    shared.RemoveVote(user_id, card_id) -> {
       state.board
       |> do_remove_vote(user_id, card_id)
       |> respond(state)
     }
-    RevealBoard -> {
+    shared.RevealBoard -> {
       state.board
       |> do_reveal_board()
       |> respond(state)
     }
-    StartVoting -> {
+    shared.StartVoting -> {
       state.board
       |> do_start_voting()
       |> respond(state)
     }
-    Subscribe(id, client) -> {
+    shared.Subscribe(id, client) -> {
       let subscribers = dict.insert(state.subscribers, id, client)
       let next_state = State(..state, subscribers:)
       actor.continue(next_state)
     }
 
-    Unsubscribe(id) -> {
+    shared.Unsubscribe(id) -> {
       let subscribers = dict.delete(state.subscribers, id)
       let next_state = State(..state, subscribers:)
       actor.continue(next_state)
@@ -249,17 +247,17 @@ fn new_string(str: String) {
 fn respond(
   result: Result(board.Board, String),
   state: State,
-) -> actor.Next(State, Message) {
+) -> actor.Next(State, BoardApiMessage) {
   case result {
     Ok(updated_board) -> {
       dict.each(state.subscribers, fn(_, sub) {
-        process.send(sub, shared_message.ApiReturnedBoard(updated_board))
+        process.send(sub, shared.ApiReturnedBoard(updated_board))
       })
       actor.continue(State(..state, board: updated_board))
     }
     Error(message) -> {
       dict.each(state.subscribers, fn(_, sub) {
-        process.send(sub, shared_message.ApiReturnedError(message))
+        process.send(sub, shared.ApiReturnedError(message))
       })
       actor.continue(state)
     }
