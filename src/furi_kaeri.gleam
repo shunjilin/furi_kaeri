@@ -5,7 +5,7 @@ import gleam/otp/supervision
 import mist
 import radiate
 import web/api/board as board_api
-import web/group_manager
+import web/board_registry
 import web/router
 
 pub fn main() -> Nil {
@@ -15,7 +15,7 @@ pub fn main() -> Nil {
     |> radiate.start()
 
   let board_factory_name = process.new_name("board_factory")
-  let group_manager_name = process.new_name("group_manager")
+  let board_registry_name = process.new_name("board_registry")
 
   let assert Ok(_) =
     supervisor.new(supervisor.OneForOne)
@@ -26,12 +26,12 @@ pub fn main() -> Nil {
     )
     |> supervisor.add(
       supervision.worker(fn() {
-        group_manager.start(board_factory_name, group_manager_name)
+        board_registry.start(board_factory_name, board_registry_name)
       }),
     )
     |> supervisor.start()
 
-  let ctx = router.Context(group_manager: group_manager_name)
+  let ctx = router.Context(board_registry: board_registry_name)
 
   let assert Ok(_) =
     router.handle_request(_, ctx)

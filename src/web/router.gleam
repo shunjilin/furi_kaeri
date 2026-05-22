@@ -17,14 +17,14 @@ import lustre/element/html.{html}
 import lustre/server_component
 import mist.{type Connection, type ResponseData}
 import web/api/board as board_api
-import web/group_manager
+import web/board_registry
 import web/views/board as board_view
 import youid/uuid
 
 const user_id_key: String = "user_id"
 
 pub type Context {
-  Context(group_manager: process.Name(group_manager.Message))
+  Context(board_registry: process.Name(board_registry.Message))
 }
 
 type GetUserResult {
@@ -66,27 +66,27 @@ pub fn handle_request(
     ExistingUser(user) -> user
   }
 
-  let group_manager = process.named_subject(ctx.group_manager)
+  let board_registry = process.named_subject(ctx.board_registry)
   case request.path_segments(req), req.method {
     [], http.Get -> serve_landing_layout() |> serve_page(user_result)
     ["board", board_id], http.Get -> {
-      case group_manager.get_board(group_manager, board_id) {
+      case board_registry.get_board(board_registry, board_id) {
         Ok(_) -> serve_board_layout(board_id) |> serve_page(user_result)
-        Error(group_manager.BoardDoesNotExist) ->
+        Error(board_registry.BoardDoesNotExist) ->
           response.new(404)
           |> response.set_body(
             mist.Bytes(bytes_tree.from_string("Board not found.")),
           )
       }
     }
-    ["board", "create"], http.Post -> handle_create_board(group_manager)
+    ["board", "create"], http.Post -> handle_create_board(board_registry)
     ["static", "css", "main.css"], http.Get ->
       serve_static("priv/static/css/main.css", "text/css")
     ["static", "js", "client.mjs"], http.Get ->
       serve_static("priv/static/js/client.mjs", "text/javascript")
     ["lustre", "runtime.mjs"], http.Get -> serve_runtime()
     ["board", board_id, "ws"], http.Get ->
-      serve_board_page(req, group_manager, user, board_id)
+      serve_board_page(req, board_registry, user, board_id)
     _, _ -> not_found()
   }
 }
@@ -105,16 +105,16 @@ fn cookie_attributes() {
 }
 
 fn handle_create_board(
-  group_manager: Subject(group_manager.Message),
+  board_registry: Subject(board_registry.Message),
 ) -> Response(ResponseData) {
   let board_id = uuid.v7() |> uuid.to_string()
-  case group_manager.create_board(group_manager, board_id) {
+  case board_registry.create_board(board_registry, board_id) {
     Ok(_) -> {
       response.new(303)
       |> response.set_header("location", "/board/" <> board_id)
       |> response.set_body(mist.Bytes(bytes_tree.new()))
     }
-    Error(group_manager.BoardAlreadyExist) -> {
+    Error(board_registry.BoardAlreadyExist) -> {
       response.new(500)
       |> response.set_body(
         mist.Bytes(bytes_tree.from_string("Failed to create board.")),
@@ -244,11 +244,11 @@ fn serve_runtime() -> Response(ResponseData) {
 
 fn serve_board_page(
   req: Request(Connection),
-  group_manager: Subject(group_manager.Message),
+  board_registry: Subject(board_registry.Message),
   user: user.User,
   board_id: String,
 ) -> Response(ResponseData) {
-  case group_manager.get_board(group_manager, board_id) {
+  case board_registry.get_board(board_registry, board_id) {
     Ok(board_manager) -> {
       mist.websocket(
         request: req,
