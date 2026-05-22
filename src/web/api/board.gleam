@@ -7,6 +7,7 @@ import domain/vote
 import gleam/dict
 import gleam/erlang/process.{type Subject}
 import gleam/function
+import gleam/option
 import gleam/otp/actor
 import gleam/result
 import web/shared_message
@@ -15,6 +16,8 @@ pub type State {
   State(
     board: board.Board,
     subscribers: dict.Dict(String, Subject(shared_message.SharedMsg)),
+    stale_timer: option.Option(process.Timer),
+    subject: Subject(Message),
   )
 }
 
@@ -30,18 +33,31 @@ pub type Message {
   StartVoting
   Subscribe(id: String, client: Subject(shared_message.SharedMsg))
   Unsubscribe(id: String)
+  DeleteBoard
 }
 
 pub fn start_link(
   id: String,
 ) -> Result(actor.Started(Subject(Message)), actor.StartError) {
-  State(board: init_board(id), subscribers: dict.new())
-  |> actor.new
+  actor.new_with_initialiser(1000, fn(subject) {
+    State(
+      board: init_board(id),
+      subscribers: dict.new(),
+      stale_timer: option.None,
+      subject: subject,
+    )
+    |> actor.initialised
+    |> actor.returning(subject)
+    |> Ok
+  })
   |> actor.on_message(handle_message)
   |> actor.start
 }
 
-fn handle_message(state: State, message: Message) -> actor.Next(State, Message) {
+fn handle_message(
+  state: State,
+  message: Message,
+) -> actor.Next(State, Message) {
   case message {
     GetBoard(reply_to) -> handle_get_board(state, reply_to)
     AddCard(user_id, lane_id, content) -> {
@@ -86,20 +102,57 @@ fn handle_message(state: State, message: Message) -> actor.Next(State, Message) 
     }
     Subscribe(id, client) -> {
       let subscribers = dict.insert(state.subscribers, id, client)
-      let next_state = State(..state, subscribers:)
+      let next_state =
+        State(..state, subscribers:)
+        |> stop_stale_timer()
       actor.continue(next_state)
     }
 
     Unsubscribe(id) -> {
       let subscribers = dict.delete(state.subscribers, id)
-      let next_state = State(..state, subscribers:)
+      let next_state =
+        State(..state, subscribers:)
+        |> start_stale_timer_if_no_subscribers()
+
       actor.continue(next_state)
     }
+
+    DeleteBoard -> {
+      actor.stop()
+    }
+  }
+}
+
+fn stop_stale_timer(state: State) {
+  case state.stale_timer {
+    option.Some(timer) -> {
+      process.cancel_timer(timer)
+      State(..state, stale_timer: option.None)
+    }
+    option.None -> state
+  }
+}
+
+/// removes a board if there are no subscribers, after 1hr
+fn start_stale_timer_if_no_subscribers(state: State) {
+  case dict.is_empty(state.subscribers) {
+    True -> {
+      State(
+        ..state,
+        stale_timer: option.Some(process.send_after(
+          state.subject,
+          60 * 60 * 1000,
+          DeleteBoard,
+        )),
+      )
+    }
+    False -> state
   }
 }
 
 fn handle_get_board(state: State, reply_to: Subject(board.Board)) {
   process.send(reply_to, state.board)
+
   actor.continue(state)
 }
 
