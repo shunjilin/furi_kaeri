@@ -86,7 +86,10 @@ pub fn vote(card card: Card, vote vote: vote.Vote) -> Result(Card, VoteError) {
   }
 }
 
-pub fn remove_vote(card: Card, vote: vote.Vote) -> Result(Card, RemoveVoteError) {
+pub fn remove_vote(
+  card: Card,
+  vote: vote.Vote,
+) -> Result(Card, RemoveVoteError) {
   case set.contains(card.votes, vote) {
     True -> Ok(Card(..card, votes: set.delete(card.votes, vote)))
     False -> Error(RemoveVoteNotFound)

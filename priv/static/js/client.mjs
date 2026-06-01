@@ -1,7 +1,9 @@
 window.addEventListener('click', (event) => {
     const path = event.composedPath();
     const target = path.find(el =>
-        el.getAttribute && el.getAttribute('data-confirm')
+        el.getAttribute
+        && el.getAttribute('data-confirm')
+        && el.tagName == 'BUTTON'
     );
 
     if (target) {

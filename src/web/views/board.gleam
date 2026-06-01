@@ -1,7 +1,6 @@
-import domain/board
-import domain/card
-import domain/lane
-import domain/phase
+import domain/board_v2
+import domain/card_v2
+import domain/lane_v2
 import domain/user
 import domain/values/non_empty_string
 import gleam/bool
@@ -14,7 +13,7 @@ import gleam/list
 import gleam/option
 import gleam/result
 import gleam/string
-import lustre.{type App}
+import lustre
 import lustre/attribute
 import lustre/effect.{type Effect}
 import lustre/element.{type Element}
@@ -25,13 +24,27 @@ import web/api/board as board_api
 import web/shared_message
 import youid/uuid
 
+type CardsUnderDraft =
+  dict.Dict(lane_v2.LaneId, String)
+
+type CardsUnderEdit =
+  dict.Dict(#(lane_v2.LaneId, card_v2.CardId), String)
+
+pub type CardUnderDrag {
+  CardUnderDrag(card_id: card_v2.CardId)
+}
+
+pub type CardDroppedOn {
+  CardDroppedOn(card_id: card_v2.CardId)
+}
+
 pub type CardView {
-  ShowCardView(id: card.CardId, lane_id: lane.LaneId, content: String)
-  EditCardView(id: card.CardId, lane_id: lane.LaneId, content: String)
-  PreviewCardView(id: card.CardId, lane_id: lane.LaneId, content: String)
+  ShowCardView(id: card_v2.CardId, lane_id: lane_v2.LaneId, content: String)
+  EditCardView(id: card_v2.CardId, lane_id: lane_v2.LaneId, content: String)
+  RevealedCardView(id: card_v2.CardId, lane_id: lane_v2.LaneId, content: String)
   VotingCardView(
-    id: card.CardId,
-    lane_id: lane.LaneId,
+    id: card_v2.CardId,
+    lane_id: lane_v2.LaneId,
     content: String,
     vote_count: Int,
     voted: Bool,
@@ -39,153 +52,22 @@ pub type CardView {
 }
 
 pub type LaneView {
-  LaneView(id: lane.LaneId, title: String, cards: List(CardView), draft: String)
+  LaneView(
+    id: lane_v2.LaneId,
+    title: String,
+    cards: List(CardView),
+    draft: String,
+    allow_adding: Bool,
+  )
 }
 
 pub type BoardView {
   BoardView(title: String, lanes: List(LaneView))
 }
 
-fn board_view_from_board(
-  user_id: user.UserId,
-  board: board.Board,
-  cards_under_draft: CardsUnderDraft,
-  cards_under_edit: CardsUnderEdit,
-  phase: phase.Phase,
-) -> BoardView {
-  BoardView(
-    title: non_empty_string.to_string(board.title(board)),
-    lanes: list.map(board.lanes(board), lane_view_from_lane(
-      user_id,
-      _,
-      cards_under_draft,
-      cards_under_edit,
-      phase,
-    )),
-  )
-}
-
-fn lane_view_from_lane(
-  user_id: user.UserId,
-  lane: lane.Lane,
-  cards_under_draft: CardsUnderDraft,
-  cards_under_edit: CardsUnderEdit,
-  phase: phase.Phase,
-) -> LaneView {
-  let draft =
-    cards_under_draft
-    |> dict.get(lane.id(lane))
-    |> result.unwrap("")
-  LaneView(
-    id: lane.id(lane),
-    title: lane |> lane.title() |> non_empty_string.to_string(),
-    cards: list.map(lane.cards(lane), card_view_from_card(
-      user_id,
-      lane.id(lane),
-      _,
-      cards_under_edit,
-      phase,
-    )),
-    draft:,
-  )
-}
-
-fn card_view_from_card(
-  user_id: user.UserId,
-  lane_id: lane.LaneId,
-  card: card.Card,
-  cards_under_edit: CardsUnderEdit,
-  phase: phase.Phase,
-) -> CardView {
-  use <- bool.guard(
-    when: phase == phase.Voting,
-    return: VotingCardView(
-      id: card.id(card),
-      lane_id: lane_id,
-      content: card |> card.content() |> non_empty_string.to_string(),
-      vote_count: card.vote_count(card),
-      voted: card.voted(card, user_id),
-    ),
-  )
-
-  use <- bool.guard(
-    when: phase == phase.Preview,
-    return: PreviewCardView(
-      id: card.id(card),
-      lane_id: lane_id,
-      content: card |> card.content() |> non_empty_string.to_string(),
-    ),
-  )
-
-  cards_under_edit
-  |> dict.get(#(lane_id, card.id(card)))
-  |> result.map(fn(content) {
-    EditCardView(id: card.id(card), lane_id: lane_id, content:)
-  })
-  |> result.unwrap(ShowCardView(
-    id: card.id(card),
-    lane_id: lane_id,
-    content: card
-      |> card.content()
-      |> non_empty_string.to_string()
-      |> maybe_mask(user_id, _, card.author_id(card)),
-  ))
-}
-
-/// mask the card if unrevealed and not belonging to user
-/// TODO: maybe make this a function to render the ShowCardView and add a
-/// masked property so we can render the necessary screen reader attributes
-fn maybe_mask(
-  user_id: user.UserId,
-  content: String,
-  author_id: user.UserId,
-) -> String {
-  use <- bool.guard(when: user_id == author_id, return: content)
-  content |> string.length |> string.repeat("*", _)
-}
-
-fn update_draft(
-  cards_under_draft: CardsUnderDraft,
-  lane_id: lane.LaneId,
-  content: String,
-) -> CardsUnderDraft {
-  dict.insert(cards_under_draft, lane_id, content)
-}
-
-fn unset_edit_card(
-  cards_under_edit: CardsUnderEdit,
-  lane_id: lane.LaneId,
-  card_id: card.CardId,
-) -> CardsUnderEdit {
-  dict.delete(cards_under_edit, #(lane_id, card_id))
-}
-
-fn update_edit_card(
-  cards_under_edit: CardsUnderEdit,
-  lane_id: lane.LaneId,
-  card_id: card.CardId,
-  content: String,
-) -> CardsUnderEdit {
-  dict.insert(cards_under_edit, #(lane_id, card_id), content)
-}
-
-type CardsUnderDraft =
-  dict.Dict(lane.LaneId, String)
-
-type CardsUnderEdit =
-  dict.Dict(#(lane.LaneId, card.CardId), String)
-
-pub type CardUnderDrag {
-  CardUnderDrag(card_id: card.CardId)
-}
-
-pub type CardDroppedOn {
-  CardDroppedOn(card_id: card.CardId)
-}
-
 pub type Model {
   Model(
-    board: board.Board,
+    board: board_v2.Board,
     cards_under_draft: CardsUnderDraft,
     cards_under_edit: CardsUnderEdit,
     card_under_drag: option.Option(CardUnderDrag),
@@ -196,23 +78,31 @@ pub type Model {
 
 pub opaque type Msg {
   AppReceivedSharedMsg(shared_message.SharedMsg)
-  UserUpdatedDraftCard(lane_id: lane.LaneId, content: String)
-  UserSetEditCard(lane_id: lane.LaneId, card_id: card.CardId, content: String)
-  UserUnsetEditCard(lane_id: lane.LaneId, card_id: card.CardId)
-  UserUpdatedEditCard(
-    lane_id: lane.LaneId,
-    card_id: card.CardId,
+  UserUpdatedDraftCard(lane_id: lane_v2.LaneId, content: String)
+  UserSetEditCard(
+    lane_id: lane_v2.LaneId,
+    card_id: card_v2.CardId,
     content: String,
   )
-  UserEditedCard(lane_id: lane.LaneId, card_id: card.CardId, content: String)
-  UserAddedCard(lane_id: lane.LaneId, content: String)
-  UserDeletedCard(card_id: card.CardId)
+  UserUnsetEditCard(lane_id: lane_v2.LaneId, card_id: card_v2.CardId)
+  UserUpdatedEditCard(
+    lane_id: lane_v2.LaneId,
+    card_id: card_v2.CardId,
+    content: String,
+  )
+  UserEditedCard(
+    lane_id: lane_v2.LaneId,
+    card_id: card_v2.CardId,
+    content: String,
+  )
+  UserAddedCard(lane_id: lane_v2.LaneId, content: String)
+  UserDeletedCard(card_id: card_v2.CardId)
   UserRevealedBoard
   UserDraggedCard(CardUnderDrag)
   UserDroppedCard(CardDroppedOn)
   UserStartedVoting
-  UserAddedCardVote(card_id: card.CardId)
-  UserRemovedCardVote(card_id: card.CardId)
+  UserAddedCardVote(card_id: card_v2.CardId)
+  UserRemovedCardVote(card_id: card_v2.CardId)
   UserReceivedError(String)
   UserCrashedApp
 }
@@ -222,7 +112,7 @@ pub fn component(
   user: user.User,
   board_id: String,
   connection_id: String,
-) -> App(Nil, Model, Msg) {
+) -> lustre.App(Nil, Model, Msg) {
   lustre.application(
     fn(_) { init(manager, user, board_id, connection_id) },
     update,
@@ -237,7 +127,6 @@ fn init(
   connection_id: String,
 ) -> #(Model, Effect(Msg)) {
   let self = process.new_subject()
-
   process.send(manager, board_api.GetBoard(reply_to: self))
 
   let initial_board = case process.receive(self, 1000) {
@@ -276,144 +165,251 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
     UserUpdatedDraftCard(lane_id, content) -> {
       let cards_under_draft =
-        update_draft(model.cards_under_draft, lane_id, content)
+        dict.insert(model.cards_under_draft, lane_id, content)
       #(Model(..model, cards_under_draft:), effect.none())
     }
+
     UserSetEditCard(lane_id, card_id, content) -> {
       let cards_under_edit =
-        update_edit_card(model.cards_under_edit, lane_id, card_id, content)
+        dict.insert(model.cards_under_edit, #(lane_id, card_id), content)
       #(Model(..model, cards_under_edit:), effect.none())
     }
+
     UserUnsetEditCard(lane_id, card_id) -> {
       let cards_under_edit =
-        unset_edit_card(model.cards_under_edit, lane_id, card_id)
+        dict.delete(model.cards_under_edit, #(lane_id, card_id))
       #(Model(..model, cards_under_edit:), effect.none())
     }
+
     UserUpdatedEditCard(lane_id, card_id, content) -> {
       let cards_under_edit =
-        update_edit_card(model.cards_under_edit, lane_id, card_id, content)
+        dict.insert(model.cards_under_edit, #(lane_id, card_id), content)
       #(Model(..model, cards_under_edit:), effect.none())
     }
+
     UserAddedCard(lane_id, content) -> {
-      let effect =
+      let run_cmd =
         effect.from(fn(_) {
           process.send(
             model.manager,
-            board_api.AddCard(
-              user_id: user.id(model.user),
-              lane_id: lane_id,
-              content: content,
-            ),
+            board_api.AddCard(user_id: user.id(model.user), lane_id:, content:),
           )
         })
-      let cards_under_draft = update_draft(model.cards_under_draft, lane_id, "")
-      #(Model(..model, cards_under_draft:), effect)
+      let cards_under_draft = dict.insert(model.cards_under_draft, lane_id, "")
+      #(Model(..model, cards_under_draft:), run_cmd)
     }
+
     UserEditedCard(lane_id, card_id, content) -> {
-      let effect =
+      let run_cmd =
         effect.from(fn(_) {
           process.send(
             model.manager,
-            board_api.EditCard(
-              user_id: user.id(model.user),
-              card_id: card_id,
-              content: content,
-            ),
+            board_api.EditCard(user_id: user.id(model.user), card_id:, content:),
           )
         })
       let cards_under_edit =
-        unset_edit_card(model.cards_under_edit, lane_id, card_id)
-      #(Model(..model, cards_under_edit:), effect)
+        dict.delete(model.cards_under_edit, #(lane_id, card_id))
+      #(Model(..model, cards_under_edit:), run_cmd)
     }
+
     UserDeletedCard(card_id) -> {
-      let effect =
+      let run_cmd =
         effect.from(fn(_) {
           process.send(
             model.manager,
-            board_api.RemoveCard(user_id: user.id(model.user), card_id: card_id),
+            board_api.RemoveCard(user_id: user.id(model.user), card_id:),
           )
         })
-
-      #(model, effect)
+      #(model, run_cmd)
     }
+
     UserRevealedBoard -> {
-      let effect =
+      let run_cmd =
         effect.from(fn(_) { process.send(model.manager, board_api.RevealBoard) })
-
-      #(model, effect)
+      #(model, run_cmd)
     }
+
     UserDraggedCard(card_under_drag) -> {
       #(
         Model(..model, card_under_drag: option.Some(card_under_drag)),
         effect.none(),
       )
     }
+
     UserDroppedCard(CardDroppedOn(to_card_id)) -> {
       case model.card_under_drag {
         option.None -> #(model, effect.none())
         option.Some(CardUnderDrag(from_card_id)) -> {
-          let effect =
+          let run_cmd =
             effect.from(fn(_) {
               process.send(
                 model.manager,
                 board_api.MergeCard(from_card_id, to_card_id),
               )
             })
-
-          #(model, effect)
+          #(model, run_cmd)
         }
       }
     }
-    UserStartedVoting -> {
-      let effect =
-        effect.from(fn(_) { process.send(model.manager, board_api.StartVoting) })
 
-      #(model, effect)
+    UserStartedVoting -> {
+      let run_cmd =
+        effect.from(fn(_) { process.send(model.manager, board_api.StartVoting) })
+      #(model, run_cmd)
     }
+
     UserAddedCardVote(card_id) -> {
-      let effect =
+      let run_cmd =
         effect.from(fn(_) {
           process.send(
             model.manager,
             board_api.Vote(user.id(model.user), card_id),
           )
         })
-      #(model, effect)
+      #(model, run_cmd)
     }
+
     UserRemovedCardVote(card_id) -> {
-      let effect =
+      let run_cmd =
         effect.from(fn(_) {
           process.send(
             model.manager,
             board_api.RemoveVote(user.id(model.user), card_id),
           )
         })
-
-      #(model, effect)
+      #(model, run_cmd)
     }
+
     UserReceivedError(err) -> {
       io.println(err)
       #(model, effect.none())
     }
+
     AppReceivedSharedMsg(shared_message.ApiReturnedBoard(updated_board)) -> {
       #(Model(..model, board: updated_board), effect.none())
     }
+
     AppReceivedSharedMsg(shared_message.ApiReturnedError(_error)) -> {
       #(model, effect.none())
     }
   }
 }
 
+fn build_view_projections(model: Model) -> BoardView {
+  let user_id = user.id(model.user)
+  let title = non_empty_string.to_string(board_v2.title(model.board))
+
+  let lanes =
+    list.map(board_v2.lanes(model.board), fn(lane) {
+      let lane_id = lane_v2.id(lane)
+      let draft =
+        dict.get(model.cards_under_draft, lane_id) |> result.unwrap("")
+
+      let #(cards, allow_adding) = case model.board.phase {
+        board_v2.DraftBoard(cards_dict) -> {
+          let mapped =
+            project_cards(cards_dict, lane_id, model, user_id, map_draft_card)
+          #(mapped, True)
+        }
+        board_v2.RevealedBoard(cards_dict) -> {
+          let mapped =
+            project_cards(
+              cards_dict,
+              lane_id,
+              model,
+              user_id,
+              map_revealed_card,
+            )
+          #(mapped, False)
+        }
+        board_v2.VotingBoard(cards_dict) -> {
+          let mapped =
+            project_cards(cards_dict, lane_id, model, user_id, map_voting_card)
+          #(mapped, False)
+        }
+      }
+
+      LaneView(
+        id: lane_id,
+        title: lane |> lane_v2.title() |> non_empty_string.to_string(),
+        cards:,
+        draft:,
+        allow_adding:,
+      )
+    })
+
+  BoardView(title:, lanes:)
+}
+
+fn project_cards(
+  cards_dict: dict.Dict(card_v2.CardId, #(lane_v2.LaneId, card_v2.Card(phase))),
+  lane_id: lane_v2.LaneId,
+  model: Model,
+  user_id: user.UserId,
+  mapper: fn(card_v2.Card(phase), lane_v2.LaneId, Model, user.UserId) ->
+    CardView,
+) -> List(CardView) {
+  dict.values(cards_dict)
+  |> list.filter(fn(entry) { entry.0 == lane_id })
+  |> list.map(fn(entry) { mapper(entry.1, lane_id, model, user_id) })
+}
+
+fn map_draft_card(
+  card: card_v2.Card(card_v2.Draft),
+  lane_id: lane_v2.LaneId,
+  model: Model,
+  user_id: user.UserId,
+) -> CardView {
+  let content = non_empty_string.to_string(card_v2.content(card))
+  case dict.get(model.cards_under_edit, #(lane_id, card_v2.id(card))) {
+    Ok(edit_content) ->
+      EditCardView(id: card_v2.id(card), lane_id:, content: edit_content)
+    Error(_) -> {
+      let masked = maybe_mask(user_id, content, card_v2.author_id(card))
+      ShowCardView(id: card_v2.id(card), lane_id:, content: masked)
+    }
+  }
+}
+
+fn map_revealed_card(
+  card: card_v2.Card(card_v2.Revealed),
+  lane_id: lane_v2.LaneId,
+  _model: Model,
+  _user_id: user.UserId,
+) -> CardView {
+  RevealedCardView(
+    id: card_v2.id(card),
+    lane_id:,
+    content: card |> card_v2.content() |> non_empty_string.to_string(),
+  )
+}
+
+fn map_voting_card(
+  card: card_v2.Card(card_v2.Voting),
+  lane_id: lane_v2.LaneId,
+  _model: Model,
+  user_id: user.UserId,
+) -> CardView {
+  VotingCardView(
+    id: card_v2.id(card),
+    lane_id:,
+    content: card |> card_v2.content() |> non_empty_string.to_string(),
+    vote_count: card_v2.vote_count(card),
+    voted: card_v2.voted(card, user_id),
+  )
+}
+
+fn maybe_mask(
+  user_id: user.UserId,
+  content: String,
+  author_id: user.UserId,
+) -> String {
+  use <- bool.guard(when: user_id == author_id, return: content)
+  content |> string.length() |> string.repeat("*", _)
+}
+
 fn view(model: Model) -> Element(Msg) {
-  let phase = board.phase(model.board)
-  let board_view =
-    board_view_from_board(
-      user.id(model.user),
-      model.board,
-      model.cards_under_draft,
-      model.cards_under_edit,
-      phase,
-    )
+  let board_view = build_view_projections(model)
 
   html.div([attribute.class("horizontal-center")], [
     html.div([attribute.class("heading")], [
@@ -426,58 +422,54 @@ fn view(model: Model) -> Element(Msg) {
         ],
         [html.text("Crash Actor (For Testing)")],
       ),
-      maybe_render(
-        html.button(
-          [
-            attribute.class("button"),
-            attribute.data("confirm", "Are you ready to start voting?"),
-            event.on_click(UserStartedVoting),
-          ],
-          [html.text("Start Voting")],
-        ),
-        phase == phase.Preview,
-      ),
-      maybe_render(
-        html.button(
-          [
-            attribute.class("button"),
-            attribute.data("confirm", "Are you ready to reveal the board?"),
-            event.on_click(UserRevealedBoard),
-          ],
-          [html.text("Reveal Board")],
-        ),
-        phase == phase.Draft,
-      ),
+      case model.board.phase {
+        board_v2.RevealedBoard(_) ->
+          html.button(
+            [
+              attribute.class("button"),
+              attribute.data("confirm", "Are you ready to start voting?"),
+              event.on_click(UserStartedVoting),
+            ],
+            [html.text("Start Voting")],
+          )
+        board_v2.DraftBoard(_) ->
+          html.button(
+            [
+              attribute.class("button"),
+              attribute.data("confirm", "Are you ready to reveal the board?"),
+              event.on_click(UserRevealedBoard),
+            ],
+            [html.text("Reveal Board")],
+          )
+        _ -> element.none()
+      },
     ]),
     html.div(
       [attribute.style("display", "flex"), attribute.style("gap", "1rem")],
-      list.map(board_view.lanes, render_lane(_, phase)),
+      list.map(board_view.lanes, render_lane),
     ),
   ])
 }
 
-fn render_lane(lane: LaneView, phase: phase.Phase) -> Element(Msg) {
+fn render_lane(lane: LaneView) -> Element(Msg) {
   html.div([attribute.class("lane")], [
     html.div([attribute.class("stack")], [
       html.h2([], [html.text(lane.title)]),
-      maybe_render(render_add_card(lane.id, lane.draft), phase == phase.Draft),
-      maybe_render(
-        html.div([attribute.class("stack")], list.map(lane.cards, render_card)),
-        lane.cards != [],
-      ),
+      case lane.allow_adding {
+        True -> render_add_card(lane.id, lane.draft)
+        False -> element.none()
+      },
+      case lane.cards {
+        [] -> element.none()
+        cards ->
+          html.div([attribute.class("stack")], list.map(cards, render_card))
+      },
     ]),
   ])
 }
 
-fn maybe_render(element: Element(a), bool: Bool) -> Element(a) {
-  case bool {
-    True -> element
-    False -> element.none()
-  }
-}
-
-fn render_add_card(lane_id: lane.LaneId, draft: String) {
-  let lane.LaneId(lane_id_as_uuid) = lane_id
+fn render_add_card(lane_id: lane_v2.LaneId, draft: String) -> Element(Msg) {
+  let lane_v2.LaneId(lane_id_as_uuid) = lane_id
   let lane_id_as_string = uuid.to_string(lane_id_as_uuid)
 
   html.form(
@@ -491,40 +483,37 @@ fn render_add_card(lane_id: lane.LaneId, draft: String) {
           attribute.id(lane_id_as_string <> "draft"),
           attribute.aria_label("Draft Card"),
           attribute.required(True),
+          attribute.placeholder("Add a card..."),
+          attribute.rows(3),
           event.debounce(
             event.on_input(fn(content) {
               UserUpdatedDraftCard(lane_id:, content:)
             }),
             200,
           ),
-          attribute.placeholder("Add a card..."),
-          attribute.rows(3),
         ],
         draft,
       ),
       html.div([attribute.class("card__actions")], [
-        html.button(
-          [
-            attribute.class("button"),
-            attribute.type_("submit"),
-          ],
-          [html.text("Submit")],
-        ),
+        html.button([attribute.class("button"), attribute.type_("submit")], [
+          html.text("Submit"),
+        ]),
       ]),
     ],
   )
 }
 
 fn render_card(card: CardView) -> Element(Msg) {
-  let lane.LaneId(lane_id_as_uuid) = card.lane_id
+  let lane_v2.LaneId(lane_id_as_uuid) = card.lane_id
   let lane_id_as_string = uuid.to_string(lane_id_as_uuid)
-  let card.CardId(card_id_as_uuid) = card.id
+  let card_v2.CardId(card_id_as_uuid) = card.id
   let card_id_as_string = uuid.to_string(card_id_as_uuid)
+
   case card {
-    PreviewCardView(..) ->
+    RevealedCardView(id, _, content) ->
       html.div(
         [
-          attribute.id(string.append(to: "card-", suffix: card_id_as_string)),
+          attribute.id("card-" <> card_id_as_string),
           attribute.class("card"),
           attribute.data("dropzone", "true"),
           attribute.draggable(True),
@@ -535,7 +524,7 @@ fn render_card(card: CardView) -> Element(Msg) {
           event.advanced(
             "dragstart",
             decode.success(event.handler(
-              dispatch: UserDraggedCard(CardUnderDrag(card.id)),
+              dispatch: UserDraggedCard(CardUnderDrag(id)),
               prevent_default: False,
               stop_propagation: False,
             )),
@@ -543,66 +532,54 @@ fn render_card(card: CardView) -> Element(Msg) {
           event.advanced(
             "drop",
             decode.success(event.handler(
-              dispatch: UserDroppedCard(CardDroppedOn(card.id)),
+              dispatch: UserDroppedCard(CardDroppedOn(id)),
               prevent_default: True,
               stop_propagation: False,
             )),
           ),
         ],
-        [
-          html.div([], [html.text(card.content)]),
-        ],
+        [html.div([], [html.text(content)])],
       )
-    VotingCardView(..) ->
+
+    VotingCardView(id, _, content, vote_count, voted) ->
       html.div([attribute.class("card")], [
-        html.div([], [html.text(card.content)]),
+        html.div([], [html.text(content)]),
         html.div([attribute.class("card__actions")], [
-          html.div([], [html.text(int.to_string(card.vote_count))]),
-          maybe_render(
-            html.button(
-              [
-                attribute.class("button"),
-                attribute.class("vote"),
-                event.on_click(UserAddedCardVote(card.id)),
-              ],
-              [
-                html.text("Vote"),
-              ],
-            ),
-            !card.voted,
-          ),
-          maybe_render(
-            html.button(
-              [
-                attribute.class("button"),
-                attribute.class("vote"),
-                event.on_click(UserRemovedCardVote(card.id)),
-              ],
-              [
-                html.text("Remove Vote"),
-              ],
-            ),
-            card.voted,
-          ),
+          html.div([], [html.text(int.to_string(vote_count))]),
+          case voted {
+            False ->
+              html.button(
+                [
+                  attribute.class("button"),
+                  attribute.class("vote"),
+                  event.on_click(UserAddedCardVote(id)),
+                ],
+                [html.text("Vote")],
+              )
+            True ->
+              html.button(
+                [
+                  attribute.class("button"),
+                  attribute.class("vote"),
+                  event.on_click(UserRemovedCardVote(id)),
+                ],
+                [html.text("Remove Vote")],
+              )
+          },
         ]),
       ])
-    ShowCardView(..) ->
+
+    ShowCardView(id, lane_id, content) ->
       html.div([attribute.class("card")], [
-        html.div([], [html.text(card.content)]),
+        html.div([], [html.text(content)]),
         html.div([attribute.class("card__actions")], [
           html.button(
             [
               attribute.class("button"),
               attribute.class("card__edit"),
-              event.on_click(UserSetEditCard(
-                card.lane_id,
-                card.id,
-                card.content,
-              )),
+              event.on_click(UserSetEditCard(lane_id, id, content)),
             ],
-            [
-              html.text("Edit"),
-            ],
+            [html.text("Edit")],
           ),
           html.button(
             [
@@ -612,24 +589,19 @@ fn render_card(card: CardView) -> Element(Msg) {
                 "confirm",
                 "Are you sure you want to delete this card?",
               ),
-              event.on_click(UserDeletedCard(card.id)),
+              event.on_click(UserDeletedCard(id)),
             ],
-            [
-              html.text("Delete"),
-            ],
+            [html.text("Delete")],
           ),
         ]),
       ])
-    EditCardView(..) -> {
+
+    EditCardView(id, lane_id, content) ->
       html.form(
         [
           attribute.class("card"),
           event.on_submit(fn(_) {
-            UserEditedCard(
-              lane_id: card.lane_id,
-              card_id: card.id,
-              content: card.content,
-            )
+            UserEditedCard(lane_id:, card_id: id, content:)
           }),
         ],
         [
@@ -638,32 +610,23 @@ fn render_card(card: CardView) -> Element(Msg) {
               attribute.id(lane_id_as_string <> "edit"),
               attribute.aria_label("Edit Card"),
               attribute.required(True),
+              attribute.placeholder("Edit card.."),
+              attribute.rows(3),
               event.debounce(
-                event.on_input(fn(content) {
-                  UserUpdatedEditCard(
-                    lane_id: card.lane_id,
-                    card_id: card.id,
-                    content:,
-                  )
+                event.on_input(fn(c) {
+                  UserUpdatedEditCard(lane_id:, card_id: id, content: c)
                 }),
                 200,
               ),
-              attribute.placeholder("Edit card.."),
-              attribute.rows(3),
             ],
-            card.content,
+            content,
           ),
           html.div([attribute.class("card__actions")], [
-            html.button(
-              [
-                attribute.class("button"),
-                attribute.type_("submit"),
-              ],
-              [html.text("Edit")],
-            ),
+            html.button([attribute.class("button"), attribute.type_("submit")], [
+              html.text("Edit"),
+            ]),
           ]),
         ],
       )
-    }
   }
 }
