@@ -39,7 +39,12 @@ pub type CardDroppedOn {
 }
 
 pub type CardView {
-  ShowCardView(id: card.CardId, lane_id: lane.LaneId, content: String)
+  ShowCardView(
+    id: card.CardId,
+    lane_id: lane.LaneId,
+    content: String,
+    is_author: Bool,
+  )
   EditCardView(id: card.CardId, lane_id: lane.LaneId, content: String)
   RevealedCardView(id: card.CardId, lane_id: lane.LaneId, content: String)
   VotingCardView(
@@ -352,12 +357,14 @@ fn map_draft_card(
   user_id: user.UserId,
 ) -> CardView {
   let content = non_empty_string.to_string(card.content(card))
+
   case dict.get(model.cards_under_edit, #(lane_id, card.id(card))) {
     Ok(edit_content) ->
       EditCardView(id: card.id(card), lane_id:, content: edit_content)
     Error(_) -> {
       let masked = maybe_mask(user_id, content, card.author_id(card))
-      ShowCardView(id: card.id(card), lane_id:, content: masked)
+      let is_author = card.author_id(card) == user_id
+      ShowCardView(id: card.id(card), lane_id:, content: masked, is_author:)
     }
   }
 }
@@ -560,10 +567,9 @@ fn render_card(card: CardView) -> Element(Msg) {
         ]),
       ])
 
-    ShowCardView(id, lane_id, content) ->
-      html.div([attribute.class("card")], [
-        html.div([], [html.text(content)]),
-        html.div([attribute.class("card__actions")], [
+    ShowCardView(id, lane_id, content, is_author) -> {
+      let edit_button = case is_author {
+        True ->
           html.button(
             [
               attribute.class("button"),
@@ -571,7 +577,12 @@ fn render_card(card: CardView) -> Element(Msg) {
               event.on_click(UserSetEditCard(lane_id, id, content)),
             ],
             [html.text("Edit")],
-          ),
+          )
+        False -> element.none()
+      }
+
+      let delete_button = case is_author {
+        True ->
           html.button(
             [
               attribute.class("button"),
@@ -583,9 +594,18 @@ fn render_card(card: CardView) -> Element(Msg) {
               event.on_click(UserDeletedCard(id)),
             ],
             [html.text("Delete")],
-          ),
+          )
+        False -> element.none()
+      }
+
+      html.div([attribute.class("card")], [
+        html.div([], [html.text(content)]),
+        html.div([attribute.class("card__actions")], [
+          edit_button,
+          delete_button,
         ]),
       ])
+    }
 
     EditCardView(id, lane_id, content) ->
       html.form(
