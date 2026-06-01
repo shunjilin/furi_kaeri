@@ -40,6 +40,8 @@ pub fn vote_test() {
   let vote_2 = f.vote()
   let card =
     card
+    |> card.reveal()
+    |> card.start_voting()
     |> card.vote(vote_1)
     |> should.be_ok
     |> card.vote(vote_2)
@@ -66,6 +68,8 @@ pub fn vote_already_voted_test() {
   let vote = f.vote()
 
   card
+  |> card.reveal()
+  |> card.start_voting()
   |> card.vote(vote)
   |> should.be_ok
   |> card.vote(vote)
@@ -78,6 +82,8 @@ pub fn remove_vote_test() {
   let vote = f.vote()
   let card =
     card
+    |> card.reveal()
+    |> card.start_voting()
     |> card.vote(vote)
     |> should.be_ok
     |> card.remove_vote(vote)
@@ -97,6 +103,8 @@ pub fn remove_vote_not_found_test() {
   let card = f.card()
 
   card
+  |> card.reveal()
+  |> card.start_voting()
   |> card.vote(f.vote())
   |> should.be_ok
   |> card.remove_vote(f.vote())
@@ -105,8 +113,8 @@ pub fn remove_vote_not_found_test() {
 }
 
 pub fn merge_card_test() {
-  let child = f.card()
-  let parent = f.card()
+  let child = f.card() |> card.reveal()
+  let parent = f.card() |> card.reveal()
 
   let expected_content =
     f.non_empty_string(
@@ -115,16 +123,16 @@ pub fn merge_card_test() {
       |> string.append(to: _, suffix: nes.to_string(card.content(child))),
     )
 
-  card.merge(from: child, to: parent)
+  card.merge(from: child, into: parent)
   |> should.be_ok
   |> card.content()
   |> should.equal(expected_content)
 }
 
 pub fn cannot_merge_to_self() {
-  let self = f.card()
+  let self = f.card() |> card.reveal()
 
-  card.merge(from: self, to: self)
+  card.merge(from: self, into: self)
   |> should.be_error
   |> should.equal(card.MergeCannotMergeToSelf)
 }

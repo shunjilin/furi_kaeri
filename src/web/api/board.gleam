@@ -1,6 +1,6 @@
-import domain/board_v2
-import domain/card_v2
-import domain/lane_v2
+import domain/board
+import domain/card
+import domain/lane
 import domain/user
 import domain/values/non_empty_string
 import domain/vote
@@ -13,7 +13,7 @@ import web/shared_message
 
 pub type State {
   State(
-    board: board_v2.Board,
+    board: board.Board,
     subscribers: dict.Dict(String, Subject(shared_message.SharedMsg)),
     stale_timer: option.Option(process.Timer),
     subject: Subject(Message),
@@ -21,13 +21,13 @@ pub type State {
 }
 
 pub type Message {
-  GetBoard(reply_to: Subject(board_v2.Board))
-  AddCard(user_id: user.UserId, lane_id: lane_v2.LaneId, content: String)
-  EditCard(user_id: user.UserId, card_id: card_v2.CardId, content: String)
-  RemoveCard(user_id: user.UserId, card_id: card_v2.CardId)
-  MergeCard(from_card_id: card_v2.CardId, to_card_id: card_v2.CardId)
-  Vote(user_id: user.UserId, card_id: card_v2.CardId)
-  RemoveVote(user_id: user.UserId, card_id: card_v2.CardId)
+  GetBoard(reply_to: Subject(board.Board))
+  AddCard(user_id: user.UserId, lane_id: lane.LaneId, content: String)
+  EditCard(user_id: user.UserId, card_id: card.CardId, content: String)
+  RemoveCard(user_id: user.UserId, card_id: card.CardId)
+  MergeCard(from_card_id: card.CardId, to_card_id: card.CardId)
+  Vote(user_id: user.UserId, card_id: card.CardId)
+  RemoveVote(user_id: user.UserId, card_id: card.CardId)
   RevealBoard
   StartVoting
   Subscribe(id: String, client: Subject(shared_message.SharedMsg))
@@ -80,13 +80,13 @@ fn handle_message(
 
     MergeCard(from_card_id, to_card_id) -> {
       state.board
-      |> board_v2.merge_cards(to_card_id, from_card_id)
+      |> board.merge_cards(to_card_id, from_card_id)
       |> result.map_error(fn(err) {
         case err {
-          board_v2.MergeTargetNotFound -> "Merge target not found."
-          board_v2.MergeSourceNotFound -> "Merge source not found."
-          board_v2.NotRevealedPhase -> "Can only merge in revealed phase."
-          board_v2.MergeCardError(card_v2.MergeCannotMergeToSelf) ->
+          board.MergeTargetNotFound -> "Merge target not found."
+          board.MergeSourceNotFound -> "Merge source not found."
+          board.NotRevealedPhase -> "Can only merge in revealed phase."
+          board.MergeCardError(card.MergeCannotMergeToSelf) ->
             "Cannot merge card with itself."
         }
       })
@@ -96,12 +96,12 @@ fn handle_message(
     Vote(user_id, card_id) -> {
       let vote = vote.Vote(user_id)
       state.board
-      |> board_v2.vote(vote, card_id)
+      |> board.vote(vote, card_id)
       |> result.map_error(fn(err) {
         case err {
-          board_v2.UpdateCardNotFound -> "Card to vote for not found."
-          board_v2.PhaseViolation -> "Can only vote in voting phase."
-          board_v2.UpdateCardError(card_v2.VoteAlreadyVoted) -> "Already voted."
+          board.UpdateCardNotFound -> "Card to vote for not found."
+          board.PhaseViolation -> "Can only vote in voting phase."
+          board.UpdateCardError(card.VoteAlreadyVoted) -> "Already voted."
         }
       })
       |> respond(state)
@@ -110,13 +110,12 @@ fn handle_message(
     RemoveVote(user_id, card_id) -> {
       let vote = vote.Vote(user_id)
       state.board
-      |> board_v2.remove_vote(vote, card_id)
+      |> board.remove_vote(vote, card_id)
       |> result.map_error(fn(err) {
         case err {
-          board_v2.UpdateCardNotFound -> "Card to remove vote for not found."
-          board_v2.PhaseViolation -> "Can only remove vote in voting phase."
-          board_v2.UpdateCardError(card_v2.RemoveVoteNotFound) ->
-            "Not yet voted."
+          board.UpdateCardNotFound -> "Card to remove vote for not found."
+          board.PhaseViolation -> "Can only remove vote in voting phase."
+          board.UpdateCardError(card.RemoveVoteNotFound) -> "Not yet voted."
         }
       })
       |> respond(state)
@@ -124,14 +123,14 @@ fn handle_message(
 
     RevealBoard -> {
       state.board
-      |> board_v2.reveal()
+      |> board.reveal()
       |> result.replace_error("Can only reveal in draft phase.")
       |> respond(state)
     }
 
     StartVoting -> {
       state.board
-      |> board_v2.start_voting()
+      |> board.start_voting()
       |> result.replace_error("Can only start voting in revealed phase.")
       |> respond(state)
     }
@@ -158,35 +157,35 @@ fn handle_message(
 }
 
 fn do_add_card(
-  board: board_v2.Board,
+  board: board.Board,
   user_id: user.UserId,
-  lane_id: lane_v2.LaneId,
+  lane_id: lane.LaneId,
   content: String,
-) -> Result(board_v2.Board, String) {
+) -> Result(board.Board, String) {
   use validated_content <- result.try(
     content
     |> non_empty_string.new()
     |> result.replace_error("Invalid content."),
   )
 
-  let card = card_v2.new(user_id, validated_content)
+  let card = card.new(user_id, validated_content)
 
   board
-  |> board_v2.add_card(card, lane_id)
+  |> board.add_card(card, lane_id)
   |> result.map_error(fn(error) {
     case error {
-      board_v2.AddCardLaneNotFound -> "Lane not found."
-      board_v2.NotDraftPhase -> "Can only add to draft board."
+      board.AddCardLaneNotFound -> "Lane not found."
+      board.NotDraftPhase -> "Can only add to draft board."
     }
   })
 }
 
 fn do_edit_card(
-  board: board_v2.Board,
+  board: board.Board,
   author_id: user.UserId,
-  card_id: card_v2.CardId,
+  card_id: card.CardId,
   content: String,
-) -> Result(board_v2.Board, String) {
+) -> Result(board.Board, String) {
   use content <- result.try(
     content
     |> non_empty_string.new()
@@ -194,29 +193,28 @@ fn do_edit_card(
   )
 
   board
-  |> board_v2.edit_card(author_id, card_id, content)
+  |> board.edit_card(author_id, card_id, content)
   |> result.map_error(fn(error) {
     case error {
-      board_v2.UpdateCardNotFound -> "Card to edit not found."
-      board_v2.PhaseViolation -> "Can only edit card in draft phase."
-      board_v2.UpdateCardError(card_v2.EditNotAuthor) ->
-        "Can only edit as author."
+      board.UpdateCardNotFound -> "Card to edit not found."
+      board.PhaseViolation -> "Can only edit card in draft phase."
+      board.UpdateCardError(card.EditNotAuthor) -> "Can only edit as author."
     }
   })
 }
 
 fn do_remove_card(
-  board: board_v2.Board,
+  board: board.Board,
   author_id: user.UserId,
-  card_id: card_v2.CardId,
-) -> Result(board_v2.Board, String) {
+  card_id: card.CardId,
+) -> Result(board.Board, String) {
   board
-  |> board_v2.remove_card(author_id, card_id)
+  |> board.remove_card(author_id, card_id)
   |> result.map_error(fn(error) {
     case error {
-      board_v2.UpdateCardNotFound -> "Card to remove not found."
-      board_v2.PhaseViolation -> "Can only remove card in draft phase."
-      board_v2.UpdateCardError(card_v2.RemoveNotAuthor) ->
+      board.UpdateCardNotFound -> "Card to remove not found."
+      board.PhaseViolation -> "Can only remove card in draft phase."
+      board.UpdateCardError(card.RemoveNotAuthor) ->
         "Can only remove card as author."
     }
   })
@@ -248,16 +246,16 @@ fn start_stale_timer_if_no_subscribers(state: State) {
   }
 }
 
-fn handle_get_board(state: State, reply_to: Subject(board_v2.Board)) {
+fn handle_get_board(state: State, reply_to: Subject(board.Board)) {
   process.send(reply_to, state.board)
   actor.continue(state)
 }
 
-pub fn init_board(id) -> board_v2.Board {
-  board_v2.new(id, new_string("Retro"), [
-    lane_v2.new(new_string("Start")),
-    lane_v2.new(new_string("Stop")),
-    lane_v2.new(new_string("Continue")),
+pub fn init_board(id) -> board.Board {
+  board.new(id, new_string("Retro"), [
+    lane.new(new_string("Start")),
+    lane.new(new_string("Stop")),
+    lane.new(new_string("Continue")),
   ])
 }
 
@@ -267,7 +265,7 @@ fn new_string(str: String) {
 }
 
 fn respond(
-  result: Result(board_v2.Board, String),
+  result: Result(board.Board, String),
   state: State,
 ) -> actor.Next(State, Message) {
   case result {

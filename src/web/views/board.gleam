@@ -1,6 +1,6 @@
-import domain/board_v2
-import domain/card_v2
-import domain/lane_v2
+import domain/board
+import domain/card
+import domain/lane
 import domain/user
 import domain/values/non_empty_string
 import gleam/bool
@@ -25,26 +25,26 @@ import web/shared_message
 import youid/uuid
 
 type CardsUnderDraft =
-  dict.Dict(lane_v2.LaneId, String)
+  dict.Dict(lane.LaneId, String)
 
 type CardsUnderEdit =
-  dict.Dict(#(lane_v2.LaneId, card_v2.CardId), String)
+  dict.Dict(#(lane.LaneId, card.CardId), String)
 
 pub type CardUnderDrag {
-  CardUnderDrag(card_id: card_v2.CardId)
+  CardUnderDrag(card_id: card.CardId)
 }
 
 pub type CardDroppedOn {
-  CardDroppedOn(card_id: card_v2.CardId)
+  CardDroppedOn(card_id: card.CardId)
 }
 
 pub type CardView {
-  ShowCardView(id: card_v2.CardId, lane_id: lane_v2.LaneId, content: String)
-  EditCardView(id: card_v2.CardId, lane_id: lane_v2.LaneId, content: String)
-  RevealedCardView(id: card_v2.CardId, lane_id: lane_v2.LaneId, content: String)
+  ShowCardView(id: card.CardId, lane_id: lane.LaneId, content: String)
+  EditCardView(id: card.CardId, lane_id: lane.LaneId, content: String)
+  RevealedCardView(id: card.CardId, lane_id: lane.LaneId, content: String)
   VotingCardView(
-    id: card_v2.CardId,
-    lane_id: lane_v2.LaneId,
+    id: card.CardId,
+    lane_id: lane.LaneId,
     content: String,
     vote_count: Int,
     voted: Bool,
@@ -53,7 +53,7 @@ pub type CardView {
 
 pub type LaneView {
   LaneView(
-    id: lane_v2.LaneId,
+    id: lane.LaneId,
     title: String,
     cards: List(CardView),
     draft: String,
@@ -67,7 +67,7 @@ pub type BoardView {
 
 pub type Model {
   Model(
-    board: board_v2.Board,
+    board: board.Board,
     cards_under_draft: CardsUnderDraft,
     cards_under_edit: CardsUnderEdit,
     card_under_drag: option.Option(CardUnderDrag),
@@ -78,31 +78,23 @@ pub type Model {
 
 pub opaque type Msg {
   AppReceivedSharedMsg(shared_message.SharedMsg)
-  UserUpdatedDraftCard(lane_id: lane_v2.LaneId, content: String)
-  UserSetEditCard(
-    lane_id: lane_v2.LaneId,
-    card_id: card_v2.CardId,
-    content: String,
-  )
-  UserUnsetEditCard(lane_id: lane_v2.LaneId, card_id: card_v2.CardId)
+  UserUpdatedDraftCard(lane_id: lane.LaneId, content: String)
+  UserSetEditCard(lane_id: lane.LaneId, card_id: card.CardId, content: String)
+  UserUnsetEditCard(lane_id: lane.LaneId, card_id: card.CardId)
   UserUpdatedEditCard(
-    lane_id: lane_v2.LaneId,
-    card_id: card_v2.CardId,
+    lane_id: lane.LaneId,
+    card_id: card.CardId,
     content: String,
   )
-  UserEditedCard(
-    lane_id: lane_v2.LaneId,
-    card_id: card_v2.CardId,
-    content: String,
-  )
-  UserAddedCard(lane_id: lane_v2.LaneId, content: String)
-  UserDeletedCard(card_id: card_v2.CardId)
+  UserEditedCard(lane_id: lane.LaneId, card_id: card.CardId, content: String)
+  UserAddedCard(lane_id: lane.LaneId, content: String)
+  UserDeletedCard(card_id: card.CardId)
   UserRevealedBoard
   UserDraggedCard(CardUnderDrag)
   UserDroppedCard(CardDroppedOn)
   UserStartedVoting
-  UserAddedCardVote(card_id: card_v2.CardId)
-  UserRemovedCardVote(card_id: card_v2.CardId)
+  UserAddedCardVote(card_id: card.CardId)
+  UserRemovedCardVote(card_id: card.CardId)
   UserReceivedError(String)
   UserCrashedApp
 }
@@ -297,21 +289,21 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
 fn build_view_projections(model: Model) -> BoardView {
   let user_id = user.id(model.user)
-  let title = non_empty_string.to_string(board_v2.title(model.board))
+  let title = non_empty_string.to_string(board.title(model.board))
 
   let lanes =
-    list.map(board_v2.lanes(model.board), fn(lane) {
-      let lane_id = lane_v2.id(lane)
+    list.map(board.lanes(model.board), fn(lane) {
+      let lane_id = lane.id(lane)
       let draft =
         dict.get(model.cards_under_draft, lane_id) |> result.unwrap("")
 
-      let #(cards, allow_adding) = case model.board.phase {
-        board_v2.DraftBoard(cards_dict) -> {
+      let #(cards, allow_adding) = case board.phase(model.board) {
+        board.DraftBoard(cards_dict) -> {
           let mapped =
             project_cards(cards_dict, lane_id, model, user_id, map_draft_card)
           #(mapped, True)
         }
-        board_v2.RevealedBoard(cards_dict) -> {
+        board.RevealedBoard(cards_dict) -> {
           let mapped =
             project_cards(
               cards_dict,
@@ -322,7 +314,7 @@ fn build_view_projections(model: Model) -> BoardView {
             )
           #(mapped, False)
         }
-        board_v2.VotingBoard(cards_dict) -> {
+        board.VotingBoard(cards_dict) -> {
           let mapped =
             project_cards(cards_dict, lane_id, model, user_id, map_voting_card)
           #(mapped, False)
@@ -331,7 +323,7 @@ fn build_view_projections(model: Model) -> BoardView {
 
       LaneView(
         id: lane_id,
-        title: lane |> lane_v2.title() |> non_empty_string.to_string(),
+        title: lane |> lane.title() |> non_empty_string.to_string(),
         cards:,
         draft:,
         allow_adding:,
@@ -342,12 +334,11 @@ fn build_view_projections(model: Model) -> BoardView {
 }
 
 fn project_cards(
-  cards_dict: dict.Dict(card_v2.CardId, #(lane_v2.LaneId, card_v2.Card(phase))),
-  lane_id: lane_v2.LaneId,
+  cards_dict: dict.Dict(card.CardId, #(lane.LaneId, card.Card(phase))),
+  lane_id: lane.LaneId,
   model: Model,
   user_id: user.UserId,
-  mapper: fn(card_v2.Card(phase), lane_v2.LaneId, Model, user.UserId) ->
-    CardView,
+  mapper: fn(card.Card(phase), lane.LaneId, Model, user.UserId) -> CardView,
 ) -> List(CardView) {
   dict.values(cards_dict)
   |> list.filter(fn(entry) { entry.0 == lane_id })
@@ -355,47 +346,47 @@ fn project_cards(
 }
 
 fn map_draft_card(
-  card: card_v2.Card(card_v2.Draft),
-  lane_id: lane_v2.LaneId,
+  card: card.Card(card.Draft),
+  lane_id: lane.LaneId,
   model: Model,
   user_id: user.UserId,
 ) -> CardView {
-  let content = non_empty_string.to_string(card_v2.content(card))
-  case dict.get(model.cards_under_edit, #(lane_id, card_v2.id(card))) {
+  let content = non_empty_string.to_string(card.content(card))
+  case dict.get(model.cards_under_edit, #(lane_id, card.id(card))) {
     Ok(edit_content) ->
-      EditCardView(id: card_v2.id(card), lane_id:, content: edit_content)
+      EditCardView(id: card.id(card), lane_id:, content: edit_content)
     Error(_) -> {
-      let masked = maybe_mask(user_id, content, card_v2.author_id(card))
-      ShowCardView(id: card_v2.id(card), lane_id:, content: masked)
+      let masked = maybe_mask(user_id, content, card.author_id(card))
+      ShowCardView(id: card.id(card), lane_id:, content: masked)
     }
   }
 }
 
 fn map_revealed_card(
-  card: card_v2.Card(card_v2.Revealed),
-  lane_id: lane_v2.LaneId,
+  card: card.Card(card.Revealed),
+  lane_id: lane.LaneId,
   _model: Model,
   _user_id: user.UserId,
 ) -> CardView {
   RevealedCardView(
-    id: card_v2.id(card),
+    id: card.id(card),
     lane_id:,
-    content: card |> card_v2.content() |> non_empty_string.to_string(),
+    content: card |> card.content() |> non_empty_string.to_string(),
   )
 }
 
 fn map_voting_card(
-  card: card_v2.Card(card_v2.Voting),
-  lane_id: lane_v2.LaneId,
+  card: card.Card(card.Voting),
+  lane_id: lane.LaneId,
   _model: Model,
   user_id: user.UserId,
 ) -> CardView {
   VotingCardView(
-    id: card_v2.id(card),
+    id: card.id(card),
     lane_id:,
-    content: card |> card_v2.content() |> non_empty_string.to_string(),
-    vote_count: card_v2.vote_count(card),
-    voted: card_v2.voted(card, user_id),
+    content: card |> card.content() |> non_empty_string.to_string(),
+    vote_count: card.vote_count(card),
+    voted: card.voted(card, user_id),
   )
 }
 
@@ -422,8 +413,8 @@ fn view(model: Model) -> Element(Msg) {
         ],
         [html.text("Crash Actor (For Testing)")],
       ),
-      case model.board.phase {
-        board_v2.RevealedBoard(_) ->
+      case board.phase(model.board) {
+        board.RevealedBoard(_) ->
           html.button(
             [
               attribute.class("button"),
@@ -432,7 +423,7 @@ fn view(model: Model) -> Element(Msg) {
             ],
             [html.text("Start Voting")],
           )
-        board_v2.DraftBoard(_) ->
+        board.DraftBoard(_) ->
           html.button(
             [
               attribute.class("button"),
@@ -468,8 +459,8 @@ fn render_lane(lane: LaneView) -> Element(Msg) {
   ])
 }
 
-fn render_add_card(lane_id: lane_v2.LaneId, draft: String) -> Element(Msg) {
-  let lane_v2.LaneId(lane_id_as_uuid) = lane_id
+fn render_add_card(lane_id: lane.LaneId, draft: String) -> Element(Msg) {
+  let lane.LaneId(lane_id_as_uuid) = lane_id
   let lane_id_as_string = uuid.to_string(lane_id_as_uuid)
 
   html.form(
@@ -504,9 +495,9 @@ fn render_add_card(lane_id: lane_v2.LaneId, draft: String) -> Element(Msg) {
 }
 
 fn render_card(card: CardView) -> Element(Msg) {
-  let lane_v2.LaneId(lane_id_as_uuid) = card.lane_id
+  let lane.LaneId(lane_id_as_uuid) = card.lane_id
   let lane_id_as_string = uuid.to_string(lane_id_as_uuid)
-  let card_v2.CardId(card_id_as_uuid) = card.id
+  let card.CardId(card_id_as_uuid) = card.id
   let card_id_as_string = uuid.to_string(card_id_as_uuid)
 
   case card {

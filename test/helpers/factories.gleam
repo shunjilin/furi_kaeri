@@ -15,7 +15,7 @@ pub fn user() -> user.User {
   user.new(user.gen_id())
 }
 
-pub fn card() -> card.Card {
+pub fn card() -> card.Card(card.Draft) {
   let author = user()
 
   card.new(user.id(author), non_empty_string("Content"))

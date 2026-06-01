@@ -1,22 +1,33 @@
 import domain/user
-import domain/values/non_empty_string as nes
+import domain/values/non_empty_string
 import domain/vote
 import gleam/bool
 import gleam/set
 import gleam/string
 import youid/uuid
 
+pub type Draft {
+  Draft
+}
+
+pub type Revealed {
+  Revealed
+}
+
+pub type Voting {
+  Voting(votes: set.Set(vote.Vote))
+}
+
 pub type CardId {
   CardId(uuid.Uuid)
 }
 
-pub opaque type Card {
+pub opaque type Card(phase) {
   Card(
     id: CardId,
     author_id: user.UserId,
-    content: nes.NonEmptyString,
-    votes: set.Set(vote.Vote),
-    children_ids: List(CardId),
+    content: non_empty_string.NonEmptyString,
+    phase: phase,
   )
 }
 
@@ -24,34 +35,31 @@ pub fn new_id() -> CardId {
   CardId(uuid.v7())
 }
 
-pub fn id(card: Card) -> CardId {
+pub fn id(card: Card(phase)) -> CardId {
   card.id
 }
 
-pub fn author_id(card: Card) -> user.UserId {
+pub fn author_id(card: Card(phase)) -> user.UserId {
   card.author_id
 }
 
-pub fn content(card: Card) -> nes.NonEmptyString {
+pub fn content(card: Card(phase)) -> non_empty_string.NonEmptyString {
   card.content
 }
 
-pub fn vote_count(card: Card) -> Int {
-  set.size(card.votes)
+pub fn vote_count(card: Card(Voting)) -> Int {
+  set.size(card.phase.votes)
 }
 
-pub fn voted(card: Card, user_id: user.UserId) -> Bool {
-  set.contains(card.votes, vote.Vote(user_id))
+pub fn voted(card: Card(Voting), user_id: user.UserId) -> Bool {
+  set.contains(card.phase.votes, vote.Vote(user_id))
 }
 
-pub fn new(author_id: user.UserId, content: nes.NonEmptyString) -> Card {
-  Card(
-    id: new_id(),
-    author_id: author_id,
-    content: content,
-    votes: set.new(),
-    children_ids: [],
-  )
+pub fn new(
+  author_id: user.UserId,
+  content: non_empty_string.NonEmptyString,
+) -> Card(Draft) {
+  Card(id: new_id(), author_id: author_id, content: content, phase: Draft)
 }
 
 pub type EditError {
@@ -59,15 +67,30 @@ pub type EditError {
 }
 
 pub fn edit(
-  card card: Card,
+  card card: Card(Draft),
   author_id author_id: user.UserId,
-  content new_content: nes.NonEmptyString,
-) -> Result(Card, EditError) {
+  content new_content: non_empty_string.NonEmptyString,
+) -> Result(Card(Draft), EditError) {
   let is_author = card.author_id == author_id
 
   case is_author {
     False -> Error(EditNotAuthor)
-    True -> Ok(Card(..card, content: new_content))
+    True -> Ok(Card(..card, content: new_content, phase: Draft))
+  }
+}
+
+pub type RemoveError {
+  RemoveNotAuthor
+}
+
+pub fn remove(
+  card card: Card(phase),
+  author_id author_id: user.UserId,
+) -> Result(Nil, RemoveError) {
+  let is_author = card.author_id == author_id
+  case is_author {
+    True -> Ok(Nil)
+    False -> Error(RemoveNotAuthor)
   }
 }
 
@@ -79,43 +102,61 @@ pub type RemoveVoteError {
   RemoveVoteNotFound
 }
 
-pub fn vote(card card: Card, vote vote: vote.Vote) -> Result(Card, VoteError) {
-  case set.contains(card.votes, vote) {
+pub fn vote(
+  card card: Card(Voting),
+  vote vote: vote.Vote,
+) -> Result(Card(Voting), VoteError) {
+  case set.contains(card.phase.votes, vote) {
     True -> Error(VoteAlreadyVoted)
-    False -> Ok(Card(..card, votes: set.insert(card.votes, vote)))
+    False ->
+      Ok(Card(..card, phase: Voting(votes: set.insert(card.phase.votes, vote))))
   }
 }
 
 pub fn remove_vote(
-  card: Card,
-  vote: vote.Vote,
-) -> Result(Card, RemoveVoteError) {
-  case set.contains(card.votes, vote) {
-    True -> Ok(Card(..card, votes: set.delete(card.votes, vote)))
+  card card: Card(Voting),
+  vote vote: vote.Vote,
+) -> Result(Card(Voting), RemoveVoteError) {
+  case set.contains(card.phase.votes, vote) {
+    True ->
+      Ok(Card(..card, phase: Voting(votes: set.delete(card.phase.votes, vote))))
     False -> Error(RemoveVoteNotFound)
   }
 }
 
 pub type MergeError {
-  MergeAlreadyMerged
   MergeCannotMergeToSelf
 }
 
 /// Naive merge that just merges the child's content to the parent's content.
 /// Caller must follow up by removing the child card from the board.
-pub fn merge(from child: Card, to parent: Card) -> Result(Card, MergeError) {
+pub fn merge(
+  from source: Card(Revealed),
+  into target: Card(Revealed),
+) -> Result(Card(Revealed), MergeError) {
   use <- bool.guard(
-    when: child.id == parent.id,
+    when: source.id == target.id,
     return: Error(MergeCannotMergeToSelf),
   )
 
   let delimiter = "\n" <> string.repeat("-", 4) <> "\n"
 
   let merged_content =
-    nes.append(
-      parent.content,
-      string.append(to: delimiter, suffix: nes.to_string(child.content)),
+    non_empty_string.append(
+      target.content,
+      string.append(
+        to: delimiter,
+        suffix: non_empty_string.to_string(source.content),
+      ),
     )
 
-  Ok(Card(..parent, content: merged_content))
+  Ok(Card(..target, content: merged_content))
+}
+
+pub fn reveal(card: Card(Draft)) -> Card(Revealed) {
+  Card(..card, phase: Revealed)
+}
+
+pub fn start_voting(card: Card(Revealed)) -> Card(Voting) {
+  Card(..card, phase: Voting(votes: set.new()))
 }
