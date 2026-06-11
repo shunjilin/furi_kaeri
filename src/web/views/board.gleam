@@ -46,7 +46,7 @@ pub type CardView {
     is_author: Bool,
   )
   EditCardView(id: card.CardId, lane_id: lane.LaneId, content: String)
-  RevealedCardView(id: card.CardId, lane_id: lane.LaneId, content: String)
+  ReviewCardView(id: card.CardId, lane_id: lane.LaneId, content: String)
   VotingCardView(
     id: card.CardId,
     lane_id: lane.LaneId,
@@ -310,13 +310,7 @@ fn build_view_projections(model: Model) -> BoardView {
         }
         board.ReviewBoard(cards_dict) -> {
           let mapped =
-            project_cards(
-              cards_dict,
-              lane_id,
-              model,
-              user_id,
-              map_revealed_card,
-            )
+            project_cards(cards_dict, lane_id, model, user_id, map_review_card)
           #(mapped, False)
         }
         board.VotingBoard(cards_dict) -> {
@@ -369,13 +363,13 @@ fn map_draft_card(
   }
 }
 
-fn map_revealed_card(
+fn map_review_card(
   card: card.Card(card.Review),
   lane_id: lane.LaneId,
   _model: Model,
   _user_id: user.UserId,
 ) -> CardView {
-  RevealedCardView(
+  ReviewCardView(
     id: card.id(card),
     lane_id:,
     content: card |> card.content() |> non_empty_string.to_string(),
@@ -511,7 +505,7 @@ fn render_card(card: CardView) -> Element(Msg) {
   let card_id_as_string = uuid.to_string(card_id_as_uuid)
 
   case card {
-    RevealedCardView(id, _, content) ->
+    ReviewCardView(id, _, content) ->
       html.div(
         [
           attribute.id("card-" <> card_id_as_string),
