@@ -22,7 +22,7 @@ pub type BoardPhase {
     cards: dict.Dict(card.CardId, #(lane.LaneId, card.Card(card.Draft))),
   )
   ReviewBoard(
-    cards: dict.Dict(card.CardId, #(lane.LaneId, card.Card(card.Revealed))),
+    cards: dict.Dict(card.CardId, #(lane.LaneId, card.Card(card.Review))),
   )
   VotingBoard(
     cards: dict.Dict(card.CardId, #(lane.LaneId, card.Card(card.Voting))),

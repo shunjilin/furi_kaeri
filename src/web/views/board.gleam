@@ -370,7 +370,7 @@ fn map_draft_card(
 }
 
 fn map_revealed_card(
-  card: card.Card(card.Revealed),
+  card: card.Card(card.Review),
   lane_id: lane.LaneId,
   _model: Model,
   _user_id: user.UserId,

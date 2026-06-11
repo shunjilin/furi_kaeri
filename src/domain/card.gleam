@@ -10,8 +10,8 @@ pub type Draft {
   Draft
 }
 
-pub type Revealed {
-  Revealed
+pub type Review {
+  Review
 }
 
 pub type Voting {
@@ -131,9 +131,9 @@ pub type MergeError {
 /// Naive merge that just merges the child's content to the parent's content.
 /// Caller must follow up by removing the child card from the board.
 pub fn merge(
-  from source: Card(Revealed),
-  into target: Card(Revealed),
-) -> Result(Card(Revealed), MergeError) {
+  from source: Card(Review),
+  into target: Card(Review),
+) -> Result(Card(Review), MergeError) {
   use <- bool.guard(
     when: source.id == target.id,
     return: Error(MergeCannotMergeToSelf),
@@ -153,10 +153,10 @@ pub fn merge(
   Ok(Card(..target, content: merged_content))
 }
 
-pub fn reveal_content(card: Card(Draft)) -> Card(Revealed) {
-  Card(..card, phase: Revealed)
+pub fn reveal_content(card: Card(Draft)) -> Card(Review) {
+  Card(..card, phase: Review)
 }
 
-pub fn start_voting(card: Card(Revealed)) -> Card(Voting) {
+pub fn start_voting(card: Card(Review)) -> Card(Voting) {
   Card(..card, phase: Voting(votes: set.new()))
 }
