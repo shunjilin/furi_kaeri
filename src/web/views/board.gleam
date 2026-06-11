@@ -144,22 +144,28 @@ fn init(
   connection_id: String,
 ) -> #(Model, Effect(Msg)) {
   let self = process.new_subject()
-  process.send(manager, board_api.GetBoard(reply_to: self))
+  process.send(manager, board_api.GetBoardSnapshot(reply_to: self))
 
-  let initial_board = case process.receive(self, 1000) {
-    Ok(board) -> board
-    Error(_) -> board_api.init_board(board_id)
+  let #(board, countdown_timer) = case process.receive(self, 1000) {
+    Ok(snapshot) -> #(
+      snapshot.board,
+      get_countdown_timer_from_snapshot(snapshot),
+    )
+    Error(_) -> #(
+      board_api.init_board(board_id),
+      InputCountdownTimer(default_countdown_minutes),
+    )
   }
 
   let model =
     Model(
-      board: initial_board,
+      board:,
+      countdown_timer:,
       cards_under_draft: dict.new(),
       cards_under_edit: dict.new(),
       user: user,
       manager: manager,
       card_under_drag: option.None,
-      countdown_timer: InputCountdownTimer(default_countdown_minutes),
     )
 
   let pubsub_effect = {
@@ -332,10 +338,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     }
 
     AppReceivedSharedMsg(shared_message.ApiReturnedBoardSnapshot(snapshot)) -> {
-      let next_countdown_timer = case snapshot.countdown_timer {
-        option.Some(timer) -> ActiveCountdownTimer(timer)
-        option.None -> InputCountdownTimer(default_countdown_minutes)
-      }
+      let next_countdown_timer = get_countdown_timer_from_snapshot(snapshot)
 
       let run_cmd = case model.countdown_timer, next_countdown_timer {
         InputCountdownTimer(_), ActiveCountdownTimer(_) -> {
@@ -361,6 +364,13 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     AppReceivedSharedMsg(shared_message.ApiReturnedError(_error)) -> {
       #(model, effect.none())
     }
+  }
+}
+
+fn get_countdown_timer_from_snapshot(snapshot: shared_message.BoardSnapshot) {
+  case snapshot.countdown_timer {
+    option.Some(timer) -> ActiveCountdownTimer(timer)
+    option.None -> InputCountdownTimer(default_countdown_minutes)
   }
 }
 

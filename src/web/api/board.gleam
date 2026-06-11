@@ -29,7 +29,7 @@ pub type State {
 }
 
 pub type Message {
-  GetBoard(reply_to: Subject(board.Board))
+  GetBoardSnapshot(reply_to: Subject(shared_message.BoardSnapshot))
   AddCard(user_id: user.UserId, lane_id: lane.LaneId, content: String)
   EditCard(user_id: user.UserId, card_id: card.CardId, content: String)
   RemoveCard(user_id: user.UserId, card_id: card.CardId)
@@ -71,7 +71,7 @@ fn handle_message(
   message: Message,
 ) -> actor.Next(State, Message) {
   case message {
-    GetBoard(reply_to) -> handle_get_board(state, reply_to)
+    GetBoardSnapshot(reply_to) -> handle_get_board_snapshot(state, reply_to)
 
     AddCard(user_id, lane_id, content) -> {
       state.board
@@ -321,8 +321,11 @@ fn stop_countdown_timer(state: State) -> State {
   }
 }
 
-fn handle_get_board(state: State, reply_to: Subject(board.Board)) {
-  process.send(reply_to, state.board)
+fn handle_get_board_snapshot(
+  state: State,
+  reply_to: Subject(shared_message.BoardSnapshot),
+) {
+  process.send(reply_to, make_snapshot(state))
   actor.continue(state)
 }
 
