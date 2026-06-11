@@ -1,18 +1,22 @@
 import domain/board
 import domain/card
 import domain/lane
+import domain/timer
 import domain/user
 import domain/values/non_empty_string
 import gleam/bool
 import gleam/dict
 import gleam/dynamic/decode
 import gleam/erlang/process.{type Subject}
+import gleam/float
 import gleam/int
 import gleam/io
+import gleam/json
 import gleam/list
 import gleam/option
 import gleam/result
 import gleam/string
+import gleam/time/duration
 import lustre
 import lustre/attribute
 import lustre/effect.{type Effect}
@@ -23,6 +27,8 @@ import lustre/server_component
 import web/api/board as board_api
 import web/shared_message
 import youid/uuid
+
+const default_countdown_minutes = 5
 
 type CardsUnderDraft =
   dict.Dict(lane.LaneId, String)
@@ -75,6 +81,11 @@ pub type BoardView {
   BoardView(title: String, lanes: List(LaneView))
 }
 
+pub type CountdownTimer {
+  ActiveCountdownTimer(timer: timer.Timer)
+  InputCountdownTimer(minutes: Int)
+}
+
 pub type Model {
   Model(
     board: board.Board,
@@ -83,6 +94,7 @@ pub type Model {
     card_under_drag: option.Option(CardUnderDrag),
     user: user.User,
     manager: Subject(board_api.Message),
+    countdown_timer: CountdownTimer,
   )
 }
 
@@ -106,6 +118,9 @@ pub opaque type Msg {
   UserAddedCardVote(card_id: card.CardId)
   UserRemovedCardVote(card_id: card.CardId)
   UserRevealedVotes
+  UserSubmittedCountdownTimer(minutes: Int)
+  UserChangedCountdownTimerInput(minutes: Int)
+  UserStoppedCountdownTimer
   UserReceivedError(String)
 }
 
@@ -144,6 +159,7 @@ fn init(
       user: user,
       manager: manager,
       card_under_drag: option.None,
+      countdown_timer: InputCountdownTimer(default_countdown_minutes),
     )
 
   let pubsub_effect = {
@@ -284,13 +300,62 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       #(model, run_cmd)
     }
 
+    UserSubmittedCountdownTimer(minutes) -> {
+      let run_cmd =
+        effect.from(fn(_) {
+          process.send(
+            model.manager,
+            board_api.StartCountdownTimer(duration: duration.minutes(minutes)),
+          )
+        })
+      #(model, run_cmd)
+    }
+
+    UserChangedCountdownTimerInput(minutes) -> {
+      #(
+        Model(..model, countdown_timer: InputCountdownTimer(minutes)),
+        effect.none(),
+      )
+    }
+
+    UserStoppedCountdownTimer -> {
+      let run_cmd =
+        effect.from(fn(_) {
+          process.send(model.manager, board_api.StopCountdownTimer)
+        })
+      #(model, run_cmd)
+    }
+
     UserReceivedError(err) -> {
       io.println(err)
       #(model, effect.none())
     }
 
-    AppReceivedSharedMsg(shared_message.ApiReturnedBoard(updated_board)) -> {
-      #(Model(..model, board: updated_board), effect.none())
+    AppReceivedSharedMsg(shared_message.ApiReturnedBoardSnapshot(snapshot)) -> {
+      let next_countdown_timer = case snapshot.countdown_timer {
+        option.Some(timer) -> ActiveCountdownTimer(timer)
+        option.None -> InputCountdownTimer(default_countdown_minutes)
+      }
+
+      let run_cmd = case model.countdown_timer, next_countdown_timer {
+        InputCountdownTimer(_), ActiveCountdownTimer(_) -> {
+          event.emit("countdown-started", json.object([]))
+        }
+
+        ActiveCountdownTimer(_), InputCountdownTimer(_) -> {
+          event.emit("countdown-stopped", json.object([]))
+        }
+
+        _, _ -> effect.none()
+      }
+      #(
+        Model(
+          ..model,
+          board: snapshot.board,
+          countdown_timer: next_countdown_timer,
+        ),
+        run_cmd,
+      )
     }
 
     AppReceivedSharedMsg(shared_message.ApiReturnedError(_error)) -> {
@@ -428,7 +493,7 @@ fn maybe_mask(
 fn view(model: Model) -> Element(Msg) {
   let board_view = build_view_projections(model)
 
-  html.div([attribute.class("horizontal-center")], [
+  html.div([attribute.class("stack horizontal-center")], [
     html.div([attribute.class("heading")], [
       html.h1([], [html.text(board_view.title)]),
       case board.phase(model.board) {
@@ -466,11 +531,94 @@ fn view(model: Model) -> Element(Msg) {
         _ -> element.none()
       },
     ]),
+    html.div([attribute.class("countdown-timer")], [
+      render_countdown_timer(model.countdown_timer),
+    ]),
     html.div(
-      [attribute.style("display", "flex"), attribute.style("gap", "1rem")],
+      [attribute.class("lanes")],
       list.map(board_view.lanes, render_lane),
     ),
   ])
+}
+
+fn pad(num: Int) -> String {
+  num
+  |> int.to_string
+  |> string.pad_start(to: 2, with: "0")
+}
+
+fn format_time(total_seconds: Int) -> String {
+  let minutes = total_seconds / 60
+  let seconds = total_seconds % 60
+
+  pad(minutes) <> ":" <> pad(seconds)
+}
+
+fn render_countdown_timer(countdown_timer: CountdownTimer) -> Element(Msg) {
+  case countdown_timer {
+    ActiveCountdownTimer(timer) -> {
+      let seconds_left =
+        duration.to_seconds(timer.duration_remaining(timer))
+        |> float.ceiling
+        |> float.truncate
+      let display_string = format_time(seconds_left)
+
+      html.div(
+        [
+          attribute.id("countdown-timer"),
+          attribute.class("countdown-timer__timer"),
+          attribute.role("timer"),
+          attribute.data("seconds", int.to_string(seconds_left)),
+          attribute.aria_atomic(True),
+        ],
+        [
+          html.time(
+            [attribute.datetime("PT" <> int.to_string(seconds_left) <> "S")],
+            [html.text(display_string)],
+          ),
+          html.button(
+            [
+              attribute.class("button"),
+              attribute.type_("button"),
+              attribute.data("type", "delete"),
+              event.on_click(UserStoppedCountdownTimer),
+            ],
+            [html.text("Stop Timer")],
+          ),
+        ],
+      )
+    }
+    InputCountdownTimer(minutes) ->
+      html.form(
+        [
+          attribute.id("countdown-timer-form"),
+          attribute.class("countdown-timer__form"),
+          event.on_submit(fn(_) { UserSubmittedCountdownTimer(minutes) }),
+        ],
+        [
+          html.input([
+            attribute.id("countdown-timer-minutes-input"),
+            attribute.type_("number"),
+            attribute.min("1"),
+            attribute.max("60"),
+            attribute.value(int.to_string(minutes)),
+            event.on_input(fn(value) {
+              case int.parse(value) {
+                Ok(minutes) -> UserChangedCountdownTimerInput(minutes)
+                Error(_) -> UserChangedCountdownTimerInput(minutes)
+              }
+            }),
+          ]),
+          html.label([attribute.for("countdown-timer-minutes-input")], [
+            html.text("minutes"),
+          ]),
+
+          html.button([attribute.class("button"), attribute.type_("submit")], [
+            html.text("Start Timer"),
+          ]),
+        ],
+      )
+  }
 }
 
 fn render_lane(lane: LaneView) -> Element(Msg) {

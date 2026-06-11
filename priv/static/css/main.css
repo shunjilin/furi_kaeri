@@ -185,7 +185,30 @@ h2 {
 .heading {
     display: flex;
     justify-content: space-between;
+    align-items: center;
     padding-block: var(--box-padding);
+}
+
+.countdown-timer {
+    padding-block: var(--box-padding);
+    display: flex;
+    flex-direction: row-reverse;
+}
+
+.countdown-timer__form {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.countdown-timer__form input {
+    width: 4rem;
+}
+
+.countdown-timer__timer {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
 }
 
 .card {
@@ -209,6 +232,11 @@ h2 {
 .card[draggable='true']:hover {
     background-color: var(--color-bg-secondary-tint);
     cursor: grab;
+}
+
+.lanes {
+    display: flex;
+    gap: var(--space-2);
 }
 
 .lane {

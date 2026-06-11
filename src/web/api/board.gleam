@@ -1,6 +1,7 @@
 import domain/board
 import domain/card
 import domain/lane
+import domain/timer
 import domain/user
 import domain/values/non_empty_string
 import domain/vote
@@ -9,11 +10,18 @@ import gleam/erlang/process.{type Subject}
 import gleam/option
 import gleam/otp/actor
 import gleam/result
+import gleam/time/duration
+import gleam/time/timestamp
 import web/shared_message
+
+pub type CountdownTimer {
+  CountdownTimer(timer: timer.Timer, process_timer: process.Timer)
+}
 
 pub type State {
   State(
     board: board.Board,
+    countdown_timer: option.Option(CountdownTimer),
     subscribers: dict.Dict(String, Subject(shared_message.SharedMsg)),
     stale_timer: option.Option(process.Timer),
     subject: Subject(Message),
@@ -34,6 +42,9 @@ pub type Message {
   Subscribe(id: String, client: Subject(shared_message.SharedMsg))
   Unsubscribe(id: String)
   DeleteBoard
+  StartCountdownTimer(duration: duration.Duration)
+  StopCountdownTimer
+  CountdownFinished
 }
 
 pub fn start_link(
@@ -42,6 +53,7 @@ pub fn start_link(
   actor.new_with_initialiser(1000, fn(subject) {
     State(
       board: init_board(id),
+      countdown_timer: option.None,
       subscribers: dict.new(),
       stale_timer: option.None,
       subject: subject,
@@ -64,19 +76,19 @@ fn handle_message(
     AddCard(user_id, lane_id, content) -> {
       state.board
       |> do_add_card(user_id, lane_id, content)
-      |> respond(state)
+      |> handle_board_result(state)
     }
 
     EditCard(user_id, card_id, content) -> {
       state.board
       |> do_edit_card(user_id, card_id, content)
-      |> respond(state)
+      |> handle_board_result(state)
     }
 
     RemoveCard(user_id, card_id) -> {
       state.board
       |> do_remove_card(user_id, card_id)
-      |> respond(state)
+      |> handle_board_result(state)
     }
 
     MergeCard(from_card_id, to_card_id) -> {
@@ -91,7 +103,7 @@ fn handle_message(
             "Cannot merge card with itself."
         }
       })
-      |> respond(state)
+      |> handle_board_result(state)
     }
 
     Vote(user_id, card_id) -> {
@@ -105,7 +117,7 @@ fn handle_message(
           board.UpdateCardError(card.VoteAlreadyVoted) -> "Already voted."
         }
       })
-      |> respond(state)
+      |> handle_board_result(state)
     }
 
     RemoveVote(user_id, card_id) -> {
@@ -119,14 +131,14 @@ fn handle_message(
           board.UpdateCardError(card.RemoveVoteNotFound) -> "Not yet voted."
         }
       })
-      |> respond(state)
+      |> handle_board_result(state)
     }
 
     RevealCardContents -> {
       state.board
       |> board.reveal_content()
       |> result.replace_error("Can only reveal content in draft phase.")
-      |> respond(state)
+      |> handle_board_result(state)
     }
 
     RevealVotes -> {
@@ -138,7 +150,7 @@ fn handle_message(
             "Can only reveal content in draft phase."
         }
       })
-      |> respond(state)
+      |> handle_board_result(state)
     }
 
     StartVoting -> {
@@ -150,7 +162,7 @@ fn handle_message(
             "Can only reveal votes in voting phase."
         }
       })
-      |> respond(state)
+      |> handle_board_result(state)
     }
 
     Subscribe(id, client) -> {
@@ -171,6 +183,41 @@ fn handle_message(
     }
 
     DeleteBoard -> actor.stop()
+
+    StartCountdownTimer(duration) -> {
+      let clean_state = stop_countdown_timer(state)
+      let now = timestamp.system_time()
+
+      timer.new(now, duration)
+      |> result.map_error(fn(err) {
+        case err {
+          timer.TimerDurationTooLong ->
+            "Timer duration is too long (must be less than 1 hour)."
+        }
+      })
+      |> result.map(fn(valid_timer) {
+        let process_timer =
+          process.send_after(
+            clean_state.subject,
+            duration.to_milliseconds(duration),
+            CountdownFinished,
+          )
+        CountdownTimer(timer: valid_timer, process_timer:)
+      })
+      |> handle_timer_result(clean_state)
+    }
+    StopCountdownTimer -> {
+      let clean_state = stop_countdown_timer(state)
+
+      process.send(clean_state.subject, CountdownFinished)
+
+      actor.continue(clean_state)
+    }
+    CountdownFinished -> {
+      State(..state, countdown_timer: option.None)
+      |> broadcast_snapshot()
+      |> actor.continue()
+    }
   }
 }
 
@@ -264,6 +311,16 @@ fn start_stale_timer_if_no_subscribers(state: State) {
   }
 }
 
+fn stop_countdown_timer(state: State) -> State {
+  case state.countdown_timer {
+    option.Some(active_timer) -> {
+      process.cancel_timer(active_timer.process_timer)
+      State(..state, countdown_timer: option.None)
+    }
+    option.None -> state
+  }
+}
+
 fn handle_get_board(state: State, reply_to: Subject(board.Board)) {
   process.send(reply_to, state.board)
   actor.continue(state)
@@ -282,22 +339,60 @@ fn new_string(str: String) {
   val
 }
 
-fn respond(
+fn handle_board_result(
   result: Result(board.Board, String),
   state: State,
 ) -> actor.Next(State, Message) {
   case result {
     Ok(updated_board) -> {
-      dict.each(state.subscribers, fn(_, sub) {
-        process.send(sub, shared_message.ApiReturnedBoard(updated_board))
-      })
-      actor.continue(State(..state, board: updated_board))
+      State(..state, board: updated_board)
+      |> broadcast_snapshot()
+      |> actor.continue()
     }
     Error(message) -> {
-      dict.each(state.subscribers, fn(_, sub) {
-        process.send(sub, shared_message.ApiReturnedError(message))
-      })
-      actor.continue(state)
+      state
+      |> broadcast_error(message)
+      |> actor.continue()
     }
   }
+}
+
+fn handle_timer_result(
+  result: Result(CountdownTimer, String),
+  state: State,
+) -> actor.Next(State, Message) {
+  case result {
+    Ok(countdown_timer) -> {
+      State(..state, countdown_timer: option.Some(countdown_timer))
+      |> broadcast_snapshot()
+      |> actor.continue()
+    }
+    Error(message) -> {
+      state
+      |> broadcast_error(message)
+      |> actor.continue()
+    }
+  }
+}
+
+fn make_snapshot(state: State) -> shared_message.BoardSnapshot {
+  shared_message.BoardSnapshot(
+    board: state.board,
+    countdown_timer: option.map(state.countdown_timer, fn(ct) { ct.timer }),
+  )
+}
+
+fn broadcast_snapshot(state: State) -> State {
+  let snapshot = make_snapshot(state)
+  let msg = shared_message.ApiReturnedBoardSnapshot(snapshot)
+
+  dict.each(state.subscribers, fn(_, sub) { process.send(sub, msg) })
+  state
+}
+
+fn broadcast_error(state: State, error_message: String) -> State {
+  dict.each(state.subscribers, fn(_, sub_subject) {
+    process.send(sub_subject, shared_message.ApiReturnedError(error_message))
+  })
+  state
 }

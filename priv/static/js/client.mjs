@@ -59,3 +59,54 @@ window.addEventListener('dragover', (event) => {
         event.preventDefault();
     }
 })
+
+let countdownInterval = null;
+let currentSeconds = 0;
+
+function updateDisplay(parentEl, seconds) {
+    const root = parentEl.shadowRoot || parentEl;
+    const timeTag = root.querySelector('#countdown-timer time');
+    if (!timeTag) return;
+
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    timeTag.innerText =
+        `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+}
+
+setInterval(() => {
+    const serverComponent = document.querySelector('lustre-server-component');
+
+    if (!serverComponent) return;
+
+    const root = serverComponent.shadowRoot || serverComponent;
+    const timerEl = root.querySelector("#countdown-timer");
+
+    if (!timerEl) {
+        if (countdownInterval) {
+            clearInterval(countdownInterval);
+            countdownInterval = null;
+        }
+        return;
+    }
+
+    const serverSeconds = parseInt(timerEl.getAttribute('data-seconds'), 10);
+
+    // If timer not started or the server's timer drifts significantly
+    if (!countdownInterval || Math.abs(currentSeconds - serverSeconds) > 2) {
+        currentSeconds = serverSeconds;
+
+        if (countdownInterval) {
+            clearInterval(countdownInterval);
+        }
+
+        countdownInterval = setInterval(() => {
+            if (currentSeconds > 0) {
+                currentSeconds--;
+                updateDisplay(serverComponent, currentSeconds);
+            } else {
+                clearInterval(countdownInterval);
+            }
+        }, 1000);
+    }
+}, 500);
