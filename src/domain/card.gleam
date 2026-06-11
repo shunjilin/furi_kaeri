@@ -18,6 +18,10 @@ pub type Voting {
   Voting(votes: set.Set(vote.Vote))
 }
 
+pub type Tallied {
+  Tallied(votes: set.Set(vote.Vote))
+}
+
 pub type CardId {
   CardId(uuid.Uuid)
 }
@@ -47,7 +51,7 @@ pub fn content(card: Card(phase)) -> non_empty_string.NonEmptyString {
   card.content
 }
 
-pub fn vote_count(card: Card(Voting)) -> Int {
+pub fn vote_count(card: Card(Tallied)) -> Int {
   set.size(card.phase.votes)
 }
 
@@ -155,6 +159,10 @@ pub fn merge(
 
 pub fn reveal_content(card: Card(Draft)) -> Card(Review) {
   Card(..card, phase: Review)
+}
+
+pub fn reveal_votes(card: Card(Voting)) -> Card(Tallied) {
+  Card(..card, phase: Tallied(votes: card.phase.votes))
 }
 
 pub fn start_voting(card: Card(Review)) -> Card(Voting) {

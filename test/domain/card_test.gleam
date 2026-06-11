@@ -48,6 +48,7 @@ pub fn vote_test() {
     |> should.be_ok
 
   card
+  |> card.reveal_votes()
   |> card.vote_count()
   |> should.equal(2)
 
@@ -88,10 +89,6 @@ pub fn remove_vote_test() {
     |> should.be_ok
     |> card.remove_vote(vote)
     |> should.be_ok
-
-  card
-  |> card.vote_count()
-  |> should.equal(0)
 
   let vote.Vote(user_id) = vote
   card

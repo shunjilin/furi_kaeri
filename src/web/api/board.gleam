@@ -28,8 +28,9 @@ pub type Message {
   MergeCard(from_card_id: card.CardId, to_card_id: card.CardId)
   Vote(user_id: user.UserId, card_id: card.CardId)
   RemoveVote(user_id: user.UserId, card_id: card.CardId)
-  RevealBoard
+  RevealCardContents
   StartVoting
+  RevealVotes
   Subscribe(id: String, client: Subject(shared_message.SharedMsg))
   Unsubscribe(id: String)
   DeleteBoard
@@ -121,17 +122,34 @@ fn handle_message(
       |> respond(state)
     }
 
-    RevealBoard -> {
+    RevealCardContents -> {
       state.board
       |> board.reveal_content()
       |> result.replace_error("Can only reveal content in draft phase.")
       |> respond(state)
     }
 
+    RevealVotes -> {
+      state.board
+      |> board.reveal_votes()
+      |> result.map_error(fn(err) {
+        case err {
+          board.InvalidTransitionState ->
+            "Can only reveal content in draft phase."
+        }
+      })
+      |> respond(state)
+    }
+
     StartVoting -> {
       state.board
       |> board.start_voting()
-      |> result.replace_error("Can only start voting in revealed phase.")
+      |> result.map_error(fn(err) {
+        case err {
+          board.InvalidTransitionState ->
+            "Can only reveal votes in voting phase."
+        }
+      })
       |> respond(state)
     }
 

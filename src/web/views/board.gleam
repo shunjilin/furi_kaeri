@@ -51,8 +51,13 @@ pub type CardView {
     id: card.CardId,
     lane_id: lane.LaneId,
     content: String,
-    vote_count: Int,
     voted: Bool,
+  )
+  TalliedCardView(
+    id: card.CardId,
+    lane_id: lane.LaneId,
+    content: String,
+    vote_count: Int,
   )
 }
 
@@ -100,6 +105,7 @@ pub opaque type Msg {
   UserStartedVoting
   UserAddedCardVote(card_id: card.CardId)
   UserRemovedCardVote(card_id: card.CardId)
+  UserRevealedVotes
   UserReceivedError(String)
   UserCrashedApp
 }
@@ -222,7 +228,9 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
     UserRevealedBoardContents -> {
       let run_cmd =
-        effect.from(fn(_) { process.send(model.manager, board_api.RevealBoard) })
+        effect.from(fn(_) {
+          process.send(model.manager, board_api.RevealCardContents)
+        })
       #(model, run_cmd)
     }
 
@@ -277,6 +285,12 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       #(model, run_cmd)
     }
 
+    UserRevealedVotes -> {
+      let run_cmd =
+        effect.from(fn(_) { process.send(model.manager, board_api.RevealVotes) })
+      #(model, run_cmd)
+    }
+
     UserReceivedError(err) -> {
       io.println(err)
       #(model, effect.none())
@@ -316,6 +330,11 @@ fn build_view_projections(model: Model) -> BoardView {
         board.VotingBoard(cards_dict) -> {
           let mapped =
             project_cards(cards_dict, lane_id, model, user_id, map_voting_card)
+          #(mapped, False)
+        }
+        board.TallyBoard(cards_dict) -> {
+          let mapped =
+            project_cards(cards_dict, lane_id, model, user_id, map_tallied_card)
           #(mapped, False)
         }
       }
@@ -386,8 +405,21 @@ fn map_voting_card(
     id: card.id(card),
     lane_id:,
     content: card |> card.content() |> non_empty_string.to_string(),
-    vote_count: card.vote_count(card),
     voted: card.voted(card, user_id),
+  )
+}
+
+fn map_tallied_card(
+  card: card.Card(card.Tallied),
+  lane_id: lane.LaneId,
+  _model: Model,
+  _user_id: user.UserId,
+) -> CardView {
+  TalliedCardView(
+    id: card.id(card),
+    lane_id:,
+    content: card |> card.content() |> non_empty_string.to_string(),
+    vote_count: card.vote_count(card),
   )
 }
 
@@ -415,15 +447,6 @@ fn view(model: Model) -> Element(Msg) {
         [html.text("Crash Actor (For Testing)")],
       ),
       case board.phase(model.board) {
-        board.ReviewBoard(_) ->
-          html.button(
-            [
-              attribute.class("button"),
-              attribute.data("confirm", "Are you ready to start voting?"),
-              event.on_click(UserStartedVoting),
-            ],
-            [html.text("Start Voting")],
-          )
         board.DraftBoard(_) ->
           html.button(
             [
@@ -434,8 +457,27 @@ fn view(model: Model) -> Element(Msg) {
               ),
               event.on_click(UserRevealedBoardContents),
             ],
-            [html.text("Reveal Board")],
+            [html.text("Reveal Card Contents")],
           )
+        board.ReviewBoard(_) ->
+          html.button(
+            [
+              attribute.class("button"),
+              attribute.data("confirm", "Are you ready to start voting?"),
+              event.on_click(UserStartedVoting),
+            ],
+            [html.text("Start Voting")],
+          )
+        board.VotingBoard(_) ->
+          html.button(
+            [
+              attribute.class("button"),
+              attribute.data("confirm", "Are you ready to reveal all votes?"),
+              event.on_click(UserRevealedVotes),
+            ],
+            [html.text("Reveal Votes")],
+          )
+
         _ -> element.none()
       },
     ]),
@@ -536,11 +578,16 @@ fn render_card(card: CardView) -> Element(Msg) {
         [html.div([], [html.text(content)])],
       )
 
-    VotingCardView(id, _, content, vote_count, voted) ->
+    VotingCardView(id, _, content, voted) ->
       html.div([attribute.class("card")], [
         html.div([], [html.text(content)]),
         html.div([attribute.class("card__actions")], [
-          html.div([], [html.text(int.to_string(vote_count))]),
+          html.div([], [
+            html.text(case voted {
+              True -> "1"
+              False -> "0"
+            }),
+          ]),
           case voted {
             False ->
               html.button(
@@ -563,6 +610,15 @@ fn render_card(card: CardView) -> Element(Msg) {
           },
         ]),
       ])
+
+    TalliedCardView(_, _, content, vote_count) -> {
+      html.div([attribute.class("card")], [
+        html.div([], [html.text(content)]),
+        html.div([attribute.class("card__actions")], [
+          html.div([], [html.text(int.to_string(vote_count) <> " votes")]),
+        ]),
+      ])
+    }
 
     ShowCardView(id, lane_id, content, is_author) -> {
       let edit_button = case is_author {

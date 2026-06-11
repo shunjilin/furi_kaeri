@@ -27,6 +27,9 @@ pub type BoardPhase {
   VotingBoard(
     cards: dict.Dict(card.CardId, #(lane.LaneId, card.Card(card.Voting))),
   )
+  TallyBoard(
+    cards: dict.Dict(card.CardId, #(lane.LaneId, card.Card(card.Tallied))),
+  )
 }
 
 pub type BoardId {
@@ -203,6 +206,16 @@ pub fn reveal_content(board: Board) -> Result(Board, TransitionError) {
     DraftBoard(cards) -> {
       let transitioned = transition_cards(cards, card.reveal_content)
       Ok(Board(..board, phase: ReviewBoard(transitioned)))
+    }
+    _ -> Error(InvalidTransitionState)
+  }
+}
+
+pub fn reveal_votes(board: Board) -> Result(Board, TransitionError) {
+  case board.phase {
+    VotingBoard(cards) -> {
+      let transitioned = transition_cards(cards, card.reveal_votes)
+      Ok(Board(..board, phase: TallyBoard(transitioned)))
     }
     _ -> Error(InvalidTransitionState)
   }
