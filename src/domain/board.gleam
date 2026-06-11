@@ -21,7 +21,7 @@ pub type BoardPhase {
   DraftBoard(
     cards: dict.Dict(card.CardId, #(lane.LaneId, card.Card(card.Draft))),
   )
-  RevealedBoard(
+  ReviewBoard(
     cards: dict.Dict(card.CardId, #(lane.LaneId, card.Card(card.Revealed))),
   )
   VotingBoard(
@@ -169,7 +169,7 @@ pub fn merge_cards(
   source_id: card.CardId,
 ) -> Result(Board, MergeCardsError) {
   case board.phase {
-    RevealedBoard(cards) -> {
+    ReviewBoard(cards) -> {
       use #(target_lane, target_card) <- result.try(
         dict.get(cards, target_id) |> result.replace_error(MergeTargetNotFound),
       )
@@ -188,7 +188,7 @@ pub fn merge_cards(
       ]
       let updated_cards = apply_updates(cards, operations)
 
-      Ok(Board(..board, phase: RevealedBoard(updated_cards)))
+      Ok(Board(..board, phase: ReviewBoard(updated_cards)))
     }
     _ -> Error(NotRevealedPhase)
   }
@@ -198,11 +198,11 @@ pub type TransitionError {
   InvalidTransitionState
 }
 
-pub fn reveal(board: Board) -> Result(Board, TransitionError) {
+pub fn reveal_content(board: Board) -> Result(Board, TransitionError) {
   case board.phase {
     DraftBoard(cards) -> {
-      let transitioned = transition_cards(cards, card.reveal)
-      Ok(Board(..board, phase: RevealedBoard(transitioned)))
+      let transitioned = transition_cards(cards, card.reveal_content)
+      Ok(Board(..board, phase: ReviewBoard(transitioned)))
     }
     _ -> Error(InvalidTransitionState)
   }
@@ -210,7 +210,7 @@ pub fn reveal(board: Board) -> Result(Board, TransitionError) {
 
 pub fn start_voting(board: Board) -> Result(Board, TransitionError) {
   case board.phase {
-    RevealedBoard(cards) -> {
+    ReviewBoard(cards) -> {
       let transitioned = transition_cards(cards, card.start_voting)
       Ok(Board(..board, phase: VotingBoard(transitioned)))
     }

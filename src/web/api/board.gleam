@@ -123,8 +123,8 @@ fn handle_message(
 
     RevealBoard -> {
       state.board
-      |> board.reveal()
-      |> result.replace_error("Can only reveal in draft phase.")
+      |> board.reveal_content()
+      |> result.replace_error("Can only reveal content in draft phase.")
       |> respond(state)
     }
 

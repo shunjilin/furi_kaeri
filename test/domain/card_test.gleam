@@ -40,7 +40,7 @@ pub fn vote_test() {
   let vote_2 = f.vote()
   let card =
     card
-    |> card.reveal()
+    |> card.reveal_content()
     |> card.start_voting()
     |> card.vote(vote_1)
     |> should.be_ok
@@ -68,7 +68,7 @@ pub fn vote_already_voted_test() {
   let vote = f.vote()
 
   card
-  |> card.reveal()
+  |> card.reveal_content()
   |> card.start_voting()
   |> card.vote(vote)
   |> should.be_ok
@@ -82,7 +82,7 @@ pub fn remove_vote_test() {
   let vote = f.vote()
   let card =
     card
-    |> card.reveal()
+    |> card.reveal_content()
     |> card.start_voting()
     |> card.vote(vote)
     |> should.be_ok
@@ -103,7 +103,7 @@ pub fn remove_vote_not_found_test() {
   let card = f.card()
 
   card
-  |> card.reveal()
+  |> card.reveal_content()
   |> card.start_voting()
   |> card.vote(f.vote())
   |> should.be_ok
@@ -113,8 +113,8 @@ pub fn remove_vote_not_found_test() {
 }
 
 pub fn merge_card_test() {
-  let child = f.card() |> card.reveal()
-  let parent = f.card() |> card.reveal()
+  let child = f.card() |> card.reveal_content()
+  let parent = f.card() |> card.reveal_content()
 
   let expected_content =
     f.non_empty_string(
@@ -130,7 +130,7 @@ pub fn merge_card_test() {
 }
 
 pub fn cannot_merge_to_self() {
-  let self = f.card() |> card.reveal()
+  let self = f.card() |> card.reveal_content()
 
   card.merge(from: self, into: self)
   |> should.be_error

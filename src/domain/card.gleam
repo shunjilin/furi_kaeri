@@ -153,7 +153,7 @@ pub fn merge(
   Ok(Card(..target, content: merged_content))
 }
 
-pub fn reveal(card: Card(Draft)) -> Card(Revealed) {
+pub fn reveal_content(card: Card(Draft)) -> Card(Revealed) {
   Card(..card, phase: Revealed)
 }
 

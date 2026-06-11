@@ -94,7 +94,7 @@ pub opaque type Msg {
   UserEditedCard(lane_id: lane.LaneId, card_id: card.CardId, content: String)
   UserAddedCard(lane_id: lane.LaneId, content: String)
   UserDeletedCard(card_id: card.CardId)
-  UserRevealedBoard
+  UserRevealedBoardContents
   UserDraggedCard(CardUnderDrag)
   UserDroppedCard(CardDroppedOn)
   UserStartedVoting
@@ -220,7 +220,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       #(model, run_cmd)
     }
 
-    UserRevealedBoard -> {
+    UserRevealedBoardContents -> {
       let run_cmd =
         effect.from(fn(_) { process.send(model.manager, board_api.RevealBoard) })
       #(model, run_cmd)
@@ -308,7 +308,7 @@ fn build_view_projections(model: Model) -> BoardView {
             project_cards(cards_dict, lane_id, model, user_id, map_draft_card)
           #(mapped, True)
         }
-        board.RevealedBoard(cards_dict) -> {
+        board.ReviewBoard(cards_dict) -> {
           let mapped =
             project_cards(
               cards_dict,
@@ -421,7 +421,7 @@ fn view(model: Model) -> Element(Msg) {
         [html.text("Crash Actor (For Testing)")],
       ),
       case board.phase(model.board) {
-        board.RevealedBoard(_) ->
+        board.ReviewBoard(_) ->
           html.button(
             [
               attribute.class("button"),
@@ -434,8 +434,11 @@ fn view(model: Model) -> Element(Msg) {
           html.button(
             [
               attribute.class("button"),
-              attribute.data("confirm", "Are you ready to reveal the board?"),
-              event.on_click(UserRevealedBoard),
+              attribute.data(
+                "confirm",
+                "Are you ready to reveal the board's contents?",
+              ),
+              event.on_click(UserRevealedBoardContents),
             ],
             [html.text("Reveal Board")],
           )
