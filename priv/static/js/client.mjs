@@ -92,8 +92,7 @@ setInterval(() => {
 
     const serverSeconds = parseInt(timerEl.getAttribute('data-seconds'), 10);
 
-    // If timer not started or the server's timer drifts significantly
-    if (!countdownInterval || Math.abs(currentSeconds - serverSeconds) > 2) {
+    if (!countdownInterval) {
         currentSeconds = serverSeconds;
 
         if (countdownInterval) {
