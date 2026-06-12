@@ -849,7 +849,7 @@ fn render_card(card: CardView) -> Element(Msg) {
           ),
           html.div([attribute.class("card__actions")], [
             html.button([attribute.class("button"), attribute.type_("submit")], [
-              html.text("Edit"),
+              html.text("Done"),
             ]),
           ]),
         ],
