@@ -508,34 +508,62 @@ fn view(model: Model) -> Element(Msg) {
       html.h1([], [html.text(board_view.title)]),
       case board.phase(model.board) {
         board.DraftBoard(_) ->
-          html.button(
+          element.element(
+            "confirm-action",
             [
-              attribute.class("button"),
-              attribute.data(
-                "confirm",
+              attribute.attribute(
+                "message",
                 "Are you ready to reveal the board's contents?",
               ),
-              event.on_click(UserRevealedBoardContents),
             ],
-            [html.text("Reveal Card Contents")],
-          )
-        board.ReviewBoard(_) ->
-          html.button(
             [
-              attribute.class("button"),
-              attribute.data("confirm", "Are you ready to start voting?"),
-              event.on_click(UserStartedVoting),
+              html.button(
+                [
+                  attribute.class("button"),
+
+                  event.on_click(UserRevealedBoardContents),
+                ],
+                [html.text("Reveal Card Contents")],
+              ),
             ],
-            [html.text("Start Voting")],
+          )
+
+        board.ReviewBoard(_) ->
+          element.element(
+            "confirm-action",
+            [
+              attribute.attribute("message", "Are you ready to start voting?"),
+            ],
+            [
+              html.button(
+                [
+                  attribute.class("button"),
+
+                  event.on_click(UserStartedVoting),
+                ],
+                [html.text("Start Voting")],
+              ),
+            ],
           )
         board.VotingBoard(_) ->
-          html.button(
+          element.element(
+            "confirm-action",
             [
-              attribute.class("button"),
-              attribute.data("confirm", "Are you ready to reveal all votes?"),
-              event.on_click(UserRevealedVotes),
+              attribute.attribute(
+                "message",
+                "Are you ready to reveal all votes?",
+              ),
             ],
-            [html.text("Reveal Votes")],
+            [
+              html.button(
+                [
+                  attribute.class("button"),
+
+                  event.on_click(UserRevealedVotes),
+                ],
+                [html.text("Reveal Votes")],
+              ),
+            ],
           )
 
         _ -> element.none()
@@ -551,19 +579,6 @@ fn view(model: Model) -> Element(Msg) {
   ])
 }
 
-fn pad(num: Int) -> String {
-  num
-  |> int.to_string
-  |> string.pad_start(to: 2, with: "0")
-}
-
-fn format_time(total_seconds: Int) -> String {
-  let minutes = total_seconds / 60
-  let seconds = total_seconds % 60
-
-  pad(minutes) <> ":" <> pad(seconds)
-}
-
 fn render_countdown_timer(countdown_timer: CountdownTimer) -> Element(Msg) {
   case countdown_timer {
     ActiveCountdownTimer(timer) -> {
@@ -571,32 +586,23 @@ fn render_countdown_timer(countdown_timer: CountdownTimer) -> Element(Msg) {
         duration.to_seconds(timer.duration_remaining(timer))
         |> float.ceiling
         |> float.truncate
-      let display_string = format_time(seconds_left)
 
-      html.div(
-        [
-          attribute.id("countdown-timer"),
-          attribute.class("countdown-timer__timer"),
-          attribute.role("timer"),
-          attribute.data("seconds", int.to_string(seconds_left)),
-          attribute.aria_atomic(True),
-        ],
-        [
-          html.time(
-            [attribute.datetime("PT" <> int.to_string(seconds_left) <> "S")],
-            [html.text(display_string)],
-          ),
-          html.button(
-            [
-              attribute.class("button"),
-              attribute.type_("button"),
-              attribute.data("type", "delete"),
-              event.on_click(UserStoppedCountdownTimer),
-            ],
-            [html.text("Stop Timer")],
-          ),
-        ],
-      )
+      html.div([attribute.class("countdown-timer__timer")], [
+        element.element(
+          "app-timer",
+          [attribute.attribute("seconds", int.to_string(seconds_left))],
+          [],
+        ),
+        html.button(
+          [
+            attribute.class("button"),
+            attribute.type_("button"),
+            attribute.data("type", "delete"),
+            event.on_click(UserStoppedCountdownTimer),
+          ],
+          [html.text("Stop Timer")],
+        ),
+      ])
     }
     InputCountdownTimer(minutes) ->
       html.form(
@@ -691,36 +697,41 @@ fn render_card(card: CardView) -> Element(Msg) {
 
   case card {
     ReviewCardView(id, _, content) ->
-      html.div(
+      element.element(
+        "draggable-item",
         [
           attribute.id("card-" <> card_id_as_string),
-          attribute.class("card"),
-          attribute.data("dropzone", "true"),
-          attribute.draggable(True),
-          attribute.data(
-            "confirm",
-            "Are you sure you want to merge these cards?",
-          ),
-          event.advanced(
+          event.on(
             "dragstart",
-            decode.success(event.handler(
-              dispatch: UserDraggedCard(CardUnderDrag(id)),
-              prevent_default: False,
-              stop_propagation: False,
-            )),
-          ),
-          event.advanced(
-            "drop",
-            decode.success(event.handler(
-              dispatch: UserDroppedCard(CardDroppedOn(id)),
-              prevent_default: True,
-              stop_propagation: False,
-            )),
+            decode.success(UserDraggedCard(CardUnderDrag(id))),
           ),
         ],
-        [html.div([], [html.text(content)])],
+        [
+          element.element("drop-zone", [], [
+            element.element(
+              "confirm-drop",
+              [
+                attribute.attribute(
+                  "message",
+                  "Are you sure you want to merge these cards?",
+                ),
+                event.on(
+                  "card-merged",
+                  decode.success(UserDroppedCard(CardDroppedOn(id))),
+                ),
+              ],
+              [
+                html.div(
+                  [
+                    attribute.class("card"),
+                  ],
+                  [html.text(content)],
+                ),
+              ],
+            ),
+          ]),
+        ],
       )
-
     VotingCardView(id, _, content, voted) ->
       html.div([attribute.class("card")], [
         html.div([], [html.text(content)]),
@@ -779,18 +790,26 @@ fn render_card(card: CardView) -> Element(Msg) {
 
       let delete_button = case is_author {
         True ->
-          html.button(
+          element.element(
+            "confirm-action",
             [
-              attribute.class("button"),
-              attribute.data("type", "delete"),
-              attribute.data(
-                "confirm",
+              attribute.attribute(
+                "message",
                 "Are you sure you want to delete this card?",
               ),
-              event.on_click(UserDeletedCard(id)),
             ],
-            [html.text("Delete")],
+            [
+              html.button(
+                [
+                  attribute.class("button"),
+                  attribute.data("type", "delete"),
+                  event.on_click(UserDeletedCard(id)),
+                ],
+                [html.text("Delete")],
+              ),
+            ],
           )
+
         False -> element.none()
       }
 

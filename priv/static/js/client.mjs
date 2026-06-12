@@ -1,111 +1,121 @@
-window.addEventListener('click', (event) => {
-    const path = event.composedPath();
-    const target = path.find(el =>
-        el.getAttribute
-        && el.getAttribute('data-confirm')
-        && el.tagName == 'BUTTON'
-    );
-
-    if (target) {
-        const msg = target.getAttribute('data-confirm');
+class ConfirmAction extends HTMLElement {
+    connectedCallback() {
+        this.addEventListener('click', this.handleEvent, true);
+    }
+    disconnectedCallback() {
+        this.removeEventListener('click', this.handleEvent, true);
+    }
+    handleEvent(event) {
+        const msg = this.getAttribute('message') || 'Are you sure?';
         if (!confirm(msg)) {
             event.preventDefault();
             event.stopPropagation();
         }
     }
-}, true);
+}
 
-window.addEventListener('drop', (event) => {
-    const path = event.composedPath();
-    const target = path.find(el =>
-        el.getAttribute && el.getAttribute('data-confirm')
-    );
+customElements.define('confirm-action', ConfirmAction);
 
-    if (target) {
-        const subjectId = event.dataTransfer.getData("text/plain");
-        const targetId = target.id;
+class DraggableItem extends HTMLElement {
+    connectedCallback() {
+        this.setAttribute('draggable', 'true');
+        this.addEventListener('dragstart', this.handleDragStart);
+    }
 
-        if (subjectId == targetId) {
+    handleDragStart = (event) => {
+        if (!this.id) {
+            throw new Error("id is required for draggable item")
+        }
+        event.dataTransfer.setData('text/plain', this.id);
+        event.dataTransfer.dropEffect = 'move';
+    }
+}
+customElements.define('draggable-item', DraggableItem);
+
+
+class DropZone extends HTMLElement {
+    connectedCallback() {
+        this.addEventListener('dragover', this.handleDragOver);
+    }
+
+    handleDragOver = (event) => {
+        event.preventDefault();
+    }
+}
+customElements.define('drop-zone', DropZone);
+
+
+class ConfirmDrop extends HTMLElement {
+    connectedCallback() {
+        this.addEventListener('drop', this.handleDrop, true);
+    }
+
+    disconnectedCallback() {
+        this.removeEventListener('drop', this.handleDrop, true);
+    }
+
+    handleDrop = (event) => {
+        const sourceId = event.dataTransfer.getData('text/plain');
+
+        const target = event.target.closest('[id]');
+        const targetId = target ? target.id : '';
+
+        console.log(targetId)
+        console.log(sourceId)
+
+        if (sourceId === targetId) {
+            event.preventDefault();
+            event.stopPropagation();
             return;
         }
 
-        const msg = target.getAttribute('data-confirm');
+        const msg = this.getAttribute('message') || 'Are you sure?';
         if (!confirm(msg)) {
             event.preventDefault();
             event.stopPropagation();
         }
+
+        console.log("Dispatch")
+
+        this.dispatchEvent(new CustomEvent('card-merged', {
+            bubbles: true,
+            composed: true,
+            detail: { sourceId, targetId }
+        }));
     }
-}, true);
-
-window.addEventListener('dragstart', (event) => {
-    const path = event.composedPath();
-    const target = path.find(el =>
-        el.getAttribute && el.getAttribute('data-confirm')
-    );
-    if (target) {
-        event.dataTransfer.setData('text/plain', target.id);
-        event.dataTransfer.dropEffect = 'move';
-    }
-});
-
-
-window.addEventListener('dragover', (event) => {
-    const path = event.composedPath();
-    const target = path.find(el =>
-        el.getAttribute && el.getAttribute('data-dropzone') == 'true'
-    );
-
-    if (target) {
-        event.preventDefault();
-    }
-})
-
-let countdownInterval = null;
-let currentSeconds = 0;
-
-function updateDisplay(parentEl, seconds) {
-    const root = parentEl.shadowRoot || parentEl;
-    const timeTag = root.querySelector('#countdown-timer time');
-    if (!timeTag) return;
-
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    timeTag.innerText =
-        `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 }
+customElements.define('confirm-drop', ConfirmDrop);
 
-setInterval(() => {
-    const serverComponent = document.querySelector('lustre-server-component');
+class AppTimer extends HTMLElement {
+    connectedCallback() {
+        this.secondsLeft = parseInt(this.getAttribute('seconds'), 10) || 0;
 
-    if (!serverComponent) return;
+        this.innerHTML = `
+      <time datetime="PT${this.secondsLeft}S" aria-atomic="true"></time>
+    `;
+        this.timeEl = this.querySelector('time');
 
-    const root = serverComponent.shadowRoot || serverComponent;
-    const timerEl = root.querySelector("#countdown-timer");
+        this.updateDisplay();
 
-    if (!timerEl) {
-        if (countdownInterval) {
-            clearInterval(countdownInterval);
-            countdownInterval = null;
-        }
-        return;
-    }
-
-    const serverSeconds = parseInt(timerEl.getAttribute('data-seconds'), 10);
-
-    if (!countdownInterval) {
-        currentSeconds = serverSeconds;
-
-        if (countdownInterval) {
-            clearInterval(countdownInterval);
-        }
-
-        countdownInterval = setInterval(() => {
-            if (currentSeconds > 0) {
-                currentSeconds--;
-                updateDisplay(serverComponent, currentSeconds);
+        this.timer = setInterval(() => {
+            if (this.secondsLeft > 0) {
+                this.secondsLeft--;
+                this.updateDisplay();
             } else {
-                clearInterval(countdownInterval);
+                clearInterval(this.timer);
             }
         }, 1000);
     }
-}, 500);
+
+    disconnectedCallback() {
+        clearInterval(this.timer);
+    }
+
+    updateDisplay() {
+        const mins = Math.floor(this.secondsLeft / 60);
+        const secs = this.secondsLeft % 60;
+        this.timeEl.innerText = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    }
+}
+
+customElements.define('app-timer', AppTimer);
