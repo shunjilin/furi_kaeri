@@ -24,7 +24,10 @@ import youid/uuid
 const user_id_key: String = "user_id"
 
 pub type Context {
-  Context(board_registry: process.Name(board_registry.Message))
+  Context(
+    board_registry: process.Name(board_registry.Message),
+    cookie_secure: Bool,
+  )
 }
 
 type GetUserResult {
@@ -68,10 +71,10 @@ pub fn handle_request(
 
   let board_registry = process.named_subject(ctx.board_registry)
   case request.path_segments(req), req.method {
-    [], http.Get -> serve_landing_layout() |> serve_page(user_result)
+    [], http.Get -> serve_landing_layout() |> serve_page(user_result, ctx)
     ["board", board_id], http.Get -> {
       case board_registry.get_board(board_registry, board_id) {
-        Ok(_) -> serve_board_layout(board_id) |> serve_page(user_result)
+        Ok(_) -> serve_board_layout(board_id) |> serve_page(user_result, ctx)
         Error(board_registry.BoardDoesNotExist) ->
           response.new(404)
           |> response.set_body(
@@ -91,14 +94,13 @@ pub fn handle_request(
   }
 }
 
-fn cookie_attributes() {
+fn cookie_attributes(ctx: Context) {
   cookie.Attributes(
     // 12 hours
     option.Some(60 * 60 * 12),
     option.Some(""),
     option.None,
-    // TODO: configure by env
-    False,
+    ctx.cookie_secure,
     True,
     option.Some(cookie.Strict),
   )
@@ -137,11 +139,12 @@ fn serve_static(path: String, mime_type: String) -> Response(ResponseData) {
 fn serve_page(
   html_body: bytes_tree.BytesTree,
   user_result: GetUserResult,
+  ctx: Context,
 ) -> Response(ResponseData) {
   response.new(200)
   |> response.set_body(mist.Bytes(html_body))
   |> response.set_header("content-type", "text/html")
-  |> assign_user(user_result)
+  |> assign_user(user_result, ctx)
 }
 
 fn serve_board_layout(board_id: String) -> bytes_tree.BytesTree {
@@ -212,6 +215,7 @@ fn layout(
 fn assign_user(
   response: Response(ResponseData),
   user_result: GetUserResult,
+  ctx: Context,
 ) -> Response(ResponseData) {
   case user_result {
     NewUser(user) -> {
@@ -220,7 +224,7 @@ fn assign_user(
         response,
         user_id_key,
         uuid.to_string(uuid),
-        cookie_attributes(),
+        cookie_attributes(ctx),
       )
     }
     ExistingUser(_) -> {
