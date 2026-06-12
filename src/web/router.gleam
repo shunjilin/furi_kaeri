@@ -1,4 +1,5 @@
 import domain/user
+import friendly_id
 import gleam/bytes_tree
 import gleam/erlang/application
 import gleam/erlang/process.{type Subject}
@@ -106,10 +107,16 @@ fn cookie_attributes(ctx: Context) {
   )
 }
 
+fn generate_board_id() -> String {
+  friendly_id.new_generator()
+  |> friendly_id.set_generator_separator("_")
+  |> friendly_id.generate()
+}
+
 fn handle_create_board(
   board_registry: Subject(board_registry.Message),
 ) -> Response(ResponseData) {
-  let board_id = uuid.v7() |> uuid.to_string()
+  let board_id = generate_board_id()
   case board_registry.create_board(board_registry, board_id) {
     Ok(_) -> {
       response.new(303)
