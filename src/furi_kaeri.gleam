@@ -50,6 +50,7 @@ pub fn main() -> Nil {
       board_registry: board_registry_name,
       cookie_secure: is_production,
       asset_version: asset_version,
+      cache_assets: is_production,
     )
 
   let assert Ok(_) =

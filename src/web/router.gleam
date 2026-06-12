@@ -29,6 +29,7 @@ pub type Context {
     board_registry: process.Name(board_registry.Message),
     cookie_secure: Bool,
     asset_version: String,
+    cache_assets: Bool,
   )
 }
 
@@ -87,9 +88,9 @@ pub fn handle_request(
     }
     ["board", "create"], http.Post -> handle_create_board(board_registry)
     ["static", "css", "main.css"], http.Get ->
-      serve_static("priv/static/css/main.css", "text/css")
+      serve_static("priv/static/css/main.css", "text/css", ctx)
     ["static", "js", "client.mjs"], http.Get ->
-      serve_static("priv/static/js/client.mjs", "text/javascript")
+      serve_static("priv/static/js/client.mjs", "text/javascript", ctx)
     ["lustre", "runtime.mjs"], http.Get -> serve_runtime()
     ["board", board_id, "ws"], http.Get ->
       serve_board_page(req, board_registry, user, board_id)
@@ -134,12 +135,29 @@ fn handle_create_board(
   }
 }
 
-fn serve_static(path: String, mime_type: String) -> Response(ResponseData) {
+fn serve_static(
+  path: String,
+  mime_type: String,
+  ctx: Context,
+) -> Response(ResponseData) {
   mist.send_file(path, offset: 0, limit: None)
   |> result.map(fn(file) {
-    response.new(200)
-    |> response.prepend_header("content-type", mime_type)
-    |> response.prepend_header("cache-control", "public, max-age=3600")
+    let res =
+      response.new(200)
+      |> response.prepend_header("content-type", mime_type)
+
+    case ctx.cache_assets {
+      True ->
+        res |> response.prepend_header("cache-control", "public, max-age=3600")
+      False ->
+        res
+        |> response.prepend_header(
+          "cache-control",
+          "no-store, no-cache, must-revalidate, max-age=0",
+        )
+        |> response.prepend_header("pragma", "no-cache")
+        |> response.prepend_header("expires", "0")
+    }
     |> response.set_body(file)
   })
   |> result.lazy_unwrap(fn() { not_found() })
