@@ -233,7 +233,7 @@ h2 {
     gap: var(--space-1);
 }
 
-.card[draggable='true']:hover {
+draggable-item:hover {
     background-color: var(--color-bg-secondary-tint);
     cursor: grab;
 }
