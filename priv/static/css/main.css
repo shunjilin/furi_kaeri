@@ -223,6 +223,7 @@ h2 {
     background-color: var(--color-bg-secondary);
     height: 100%;
     white-space: pre-wrap;
+    word-break: break-all;
 }
 
 .card__actions {
