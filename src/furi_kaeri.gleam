@@ -12,6 +12,8 @@ import web/router
 
 pub fn main() -> Nil {
   let env_string = envoy.get("GLEAM_ENV") |> result.unwrap("development")
+  let asset_version =
+    envoy.get("FLY_MACHINE_VERSION") |> result.unwrap("development")
 
   let is_production = env_string == "production"
 
@@ -47,6 +49,7 @@ pub fn main() -> Nil {
     router.Context(
       board_registry: board_registry_name,
       cookie_secure: is_production,
+      asset_version: asset_version,
     )
 
   let assert Ok(_) =

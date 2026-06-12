@@ -28,6 +28,7 @@ pub type Context {
   Context(
     board_registry: process.Name(board_registry.Message),
     cookie_secure: Bool,
+    asset_version: String,
   )
 }
 
@@ -72,10 +73,11 @@ pub fn handle_request(
 
   let board_registry = process.named_subject(ctx.board_registry)
   case request.path_segments(req), req.method {
-    [], http.Get -> serve_landing_layout() |> serve_page(user_result, ctx)
+    [], http.Get -> serve_landing_layout(ctx) |> serve_page(user_result, ctx)
     ["board", board_id], http.Get -> {
       case board_registry.get_board(board_registry, board_id) {
-        Ok(_) -> serve_board_layout(board_id) |> serve_page(user_result, ctx)
+        Ok(_) ->
+          serve_board_layout(board_id, ctx) |> serve_page(user_result, ctx)
         Error(board_registry.BoardDoesNotExist) ->
           response.new(404)
           |> response.set_body(
@@ -154,7 +156,7 @@ fn serve_page(
   |> assign_user(user_result, ctx)
 }
 
-fn serve_board_layout(board_id: String) -> bytes_tree.BytesTree {
+fn serve_board_layout(board_id: String, ctx: Context) -> bytes_tree.BytesTree {
   let ws_route = "/board/" <> board_id <> "/ws"
 
   let extra_head = [
@@ -163,7 +165,10 @@ fn serve_board_layout(board_id: String) -> bytes_tree.BytesTree {
       "",
     ),
     html.script(
-      [attribute.type_("module"), attribute.src("/static/js/client.mjs")],
+      [
+        attribute.type_("module"),
+        attribute.src("/static/js/client.mjs?v=" <> ctx.asset_version),
+      ],
       "",
     ),
   ]
@@ -172,10 +177,10 @@ fn serve_board_layout(board_id: String) -> bytes_tree.BytesTree {
     server_component.element([server_component.route(ws_route)], []),
   ]
 
-  layout("Board", extra_head, body_content)
+  layout("Board", extra_head, body_content, ctx)
 }
 
-fn serve_landing_layout() -> bytes_tree.BytesTree {
+fn serve_landing_layout(ctx: Context) -> bytes_tree.BytesTree {
   let body_content = [
     html.main([attribute.class("center")], [
       html.form([attribute.method("POST"), attribute.action("/board/create")], [
@@ -191,19 +196,20 @@ fn serve_landing_layout() -> bytes_tree.BytesTree {
   ]
 
   // Pass an empty list for extra_head since it only needs core defaults
-  layout("Home", [], body_content)
+  layout("Home", [], body_content, ctx)
 }
 
 fn layout(
   title_suffix: String,
   page_specific_head: List(element.Element(msg)),
   body_content: List(element.Element(msg)),
+  ctx: Context,
 ) -> bytes_tree.BytesTree {
   html([attribute.lang("en")], [
     html.head([], [
       html.link([
         attribute.rel("stylesheet"),
-        attribute.href("/static/css/main.css"),
+        attribute.href("/static/css/main.css?v=" <> ctx.asset_version),
       ]),
       html.meta([attribute.charset("utf-8")]),
       html.meta([
