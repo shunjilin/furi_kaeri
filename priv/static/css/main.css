@@ -159,6 +159,12 @@ h2 {
     margin-top: var(--space, var(--space-2));
 }
 
+.cluster {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+}
+
 .box {
     padding: var(--padding, var(--box-padding));
     border-color: var(--color-border);
@@ -182,6 +188,10 @@ h2 {
 /* 
     Custom Components
 */
+.create-lanes-form__title {
+    font-size: var(--text-xl);
+}
+
 .heading {
     display: flex;
     justify-content: space-between;
@@ -252,8 +262,8 @@ button.button {
     border: var(--border-width) solid var(--color-border);
     border-radius: var(--border-radius);
     background-color: var(--color-secondary);
+    width: fit-content;
 }
-
 
 button.button[type="submit"] {
     background-color: var(--color-primary);

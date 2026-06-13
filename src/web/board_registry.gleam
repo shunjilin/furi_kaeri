@@ -1,3 +1,4 @@
+import domain/board
 import gleam/dict.{type Dict}
 import gleam/erlang/process.{type Subject}
 import gleam/otp/actor
@@ -14,7 +15,7 @@ pub type GetError {
 
 pub type Message {
   CreateBoard(
-    id: String,
+    board: board.Board,
     reply_to: Subject(Result(Subject(board_api.Message), CreateError)),
   )
   GetBoard(
@@ -25,7 +26,7 @@ pub type Message {
 
 pub fn start(
   board_factory_name: process.Name(
-    factory.Message(String, process.Subject(board_api.Message)),
+    factory.Message(board.Board, process.Subject(board_api.Message)),
   ),
   self_name: process.Name(Message),
 ) {
@@ -42,22 +43,22 @@ fn handle_message(
   state: Dict(String, Subject(board_api.Message)),
   msg: Message,
   board_factory_name: process.Name(
-    factory.Message(String, process.Subject(board_api.Message)),
+    factory.Message(board.Board, process.Subject(board_api.Message)),
   ),
 ) {
   case msg {
-    CreateBoard(id, reply_to) -> {
-      case dict.get(state, id) {
+    CreateBoard(board, reply_to) -> {
+      case dict.get(state, board.id(board)) {
         Ok(_) -> {
           process.send(reply_to, Error(BoardAlreadyExist))
           actor.continue(state)
         }
         Error(_) -> {
           let board_factory_subject = factory.get_by_name(board_factory_name)
-          case factory.start_child(board_factory_subject, id) {
+          case factory.start_child(board_factory_subject, board) {
             Ok(actor.Started(data: board_subject, ..)) -> {
               process.send(reply_to, Ok(board_subject))
-              actor.continue(dict.insert(state, id, board_subject))
+              actor.continue(dict.insert(state, board.id(board), board_subject))
             }
             Error(_) -> {
               process.send(reply_to, Error(BoardAlreadyExist))
@@ -99,9 +100,9 @@ fn check_subject_alive(subject: Subject(a)) -> Bool {
 
 pub fn create_board(
   manager: Subject(Message),
-  id: String,
+  board: board.Board,
 ) -> Result(Subject(board_api.Message), CreateError) {
-  process.call(manager, 1000, CreateBoard(id, _))
+  process.call(manager, 1000, CreateBoard(board, _))
 }
 
 pub fn get_board(

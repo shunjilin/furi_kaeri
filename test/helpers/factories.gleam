@@ -2,6 +2,7 @@ import domain/board
 import domain/card
 import domain/lane
 import domain/user
+import domain/values/non_empty_list
 import domain/values/non_empty_string as nes
 import domain/vote
 import youid/uuid
@@ -30,7 +31,9 @@ pub fn vote() -> vote.Vote {
 }
 
 pub fn board() -> board.Board {
-  board.new(uuid.v7() |> uuid.to_string(), non_empty_string("Board"), [
-    lane(),
-  ])
+  board.new(
+    uuid.v7() |> uuid.to_string(),
+    non_empty_string("Board"),
+    non_empty_list.NonEmptyList(first: lane(), rest: []),
+  )
 }

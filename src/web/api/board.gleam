@@ -3,6 +3,7 @@ import domain/card
 import domain/lane
 import domain/timer
 import domain/user
+import domain/values/non_empty_list
 import domain/values/non_empty_string
 import domain/vote
 import gleam/dict
@@ -47,12 +48,16 @@ pub type Message {
   CountdownFinished
 }
 
+pub type BoardInitArgs {
+  BoardInitArgs(id: String, lanes: non_empty_list.NonEmptyList(lane.Lane))
+}
+
 pub fn start_link(
-  id: String,
+  board: board.Board,
 ) -> Result(actor.Started(Subject(Message)), actor.StartError) {
   actor.new_with_initialiser(1000, fn(subject) {
     State(
-      board: init_board(id),
+      board:,
       countdown_timer: option.None,
       subscribers: dict.new(),
       stale_timer: option.None,
@@ -327,19 +332,6 @@ fn handle_get_board_snapshot(
 ) {
   process.send(reply_to, make_snapshot(state))
   actor.continue(state)
-}
-
-pub fn init_board(id) -> board.Board {
-  board.new(id, new_string("Retro"), [
-    lane.new(new_string("Start")),
-    lane.new(new_string("Stop")),
-    lane.new(new_string("Continue")),
-  ])
-}
-
-fn new_string(str: String) {
-  let assert Ok(val) = non_empty_string.new(str)
-  val
 }
 
 fn handle_board_result(

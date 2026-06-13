@@ -1,5 +1,10 @@
+import domain/board
+import domain/lane
 import domain/user
+import domain/values/non_empty_list
+import domain/values/non_empty_string
 import friendly_id
+import gleam/bit_array
 import gleam/bytes_tree
 import gleam/erlang/application
 import gleam/erlang/process.{type Subject}
@@ -11,6 +16,7 @@ import gleam/json
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/result
+import gleam/uri
 import lustre
 import lustre/attribute
 import lustre/element
@@ -20,6 +26,7 @@ import mist.{type Connection, type ResponseData}
 import web/api/board as board_api
 import web/board_registry
 import web/views/board as board_view
+import web/views/home
 import youid/uuid
 
 const user_id_key: String = "user_id"
@@ -74,7 +81,7 @@ pub fn handle_request(
 
   let board_registry = process.named_subject(ctx.board_registry)
   case request.path_segments(req), req.method {
-    [], http.Get -> serve_landing_layout(ctx) |> serve_page(user_result, ctx)
+    [], http.Get -> serve_home_layout(ctx) |> serve_page(user_result, ctx)
     ["board", board_id], http.Get -> {
       case board_registry.get_board(board_registry, board_id) {
         Ok(_) ->
@@ -86,12 +93,13 @@ pub fn handle_request(
           )
       }
     }
-    ["board", "create"], http.Post -> handle_create_board(board_registry)
+    ["board", "create"], http.Post -> handle_create_board(board_registry, req)
     ["static", "css", "main.css"], http.Get ->
       serve_static("priv/static/css/main.css", "text/css", ctx)
     ["static", "js", "client.mjs"], http.Get ->
       serve_static("priv/static/js/client.mjs", "text/javascript", ctx)
     ["lustre", "runtime.mjs"], http.Get -> serve_runtime()
+    ["home", "ws"], http.Get -> serve_home_page(req)
     ["board", board_id, "ws"], http.Get ->
       serve_board_page(req, board_registry, user, board_id)
     _, _ -> not_found()
@@ -116,21 +124,102 @@ fn generate_board_id() -> String {
   |> friendly_id.generate()
 }
 
+pub fn parse_board_form(
+  body_bit_array: BitArray,
+  board_id: String,
+) -> Result(board.Board, Nil) {
+  use body_string <- result.try(
+    bit_array.to_string(body_bit_array) |> result.replace_error(Nil),
+  )
+
+  use key_values <- result.try(
+    uri.parse_query(body_string) |> result.replace_error(Nil),
+  )
+
+  use lanes <- result.try(
+    list.filter_map(key_values, fn(pair) {
+      let #(key, value) = pair
+      case key {
+        "lanes[]" -> {
+          non_empty_string.new(value)
+          |> result.map(lane.new)
+          |> result.map_error(fn(error) {
+            case error {
+              non_empty_string.EmptyString -> Nil
+            }
+          })
+        }
+        _ -> Error(Nil)
+      }
+    })
+    |> non_empty_list.from_list
+    |> result.map_error(fn(error) {
+      case error {
+        non_empty_list.EmptyList -> Nil
+      }
+    }),
+  )
+
+  use title <- result.try(
+    non_empty_string.new("Retro")
+    |> result.map_error(fn(error) {
+      case error {
+        non_empty_string.EmptyString -> Nil
+      }
+    }),
+  )
+
+  Ok(board.new(board_id, title, lanes))
+}
+
 fn handle_create_board(
   board_registry: Subject(board_registry.Message),
+  req: Request(Connection),
 ) -> Response(ResponseData) {
-  let board_id = generate_board_id()
-  case board_registry.create_board(board_registry, board_id) {
-    Ok(_) -> {
-      response.new(303)
-      |> response.set_header("location", "/board/" <> board_id)
-      |> response.set_body(mist.Bytes(bytes_tree.new()))
+  case mist.read_body(req, 102_400) {
+    Ok(req_with_body) -> {
+      case parse_board_form(req_with_body.body, generate_board_id()) {
+        Error(Nil) ->
+          response.new(422)
+          |> response.set_body(
+            mist.Bytes(bytes_tree.from_string(
+              "Failed to create board due to invalid input.",
+            )),
+          )
+        Ok(board) -> {
+          case board_registry.create_board(board_registry, board) {
+            Ok(_) -> {
+              response.new(303)
+              |> response.set_header("location", "/board/" <> board.id(board))
+              |> response.set_body(mist.Bytes(bytes_tree.new()))
+            }
+            Error(board_registry.BoardAlreadyExist) -> {
+              response.new(409)
+              |> response.set_body(
+                mist.Bytes(bytes_tree.from_string(
+                  "Failed to create board as it already exists.",
+                )),
+              )
+            }
+          }
+        }
+      }
     }
-    Error(board_registry.BoardAlreadyExist) -> {
-      response.new(500)
-      |> response.set_body(
-        mist.Bytes(bytes_tree.from_string("Failed to create board.")),
-      )
+    Error(error) -> {
+      case error {
+        mist.ExcessBody -> {
+          response.new(413)
+          |> response.set_body(
+            mist.Bytes(bytes_tree.from_string("Request body too large.")),
+          )
+        }
+        mist.MalformedBody -> {
+          response.new(400)
+          |> response.set_body(
+            mist.Bytes(bytes_tree.from_string("Malformed request body.")),
+          )
+        }
+      }
     }
   }
 }
@@ -198,23 +287,28 @@ fn serve_board_layout(board_id: String, ctx: Context) -> bytes_tree.BytesTree {
   layout("Board", extra_head, body_content, ctx)
 }
 
-fn serve_landing_layout(ctx: Context) -> bytes_tree.BytesTree {
-  let body_content = [
-    html.main([attribute.class("center")], [
-      html.form([attribute.method("POST"), attribute.action("/board/create")], [
-        html.button(
-          [
-            attribute.class("button"),
-            attribute.type_("submit"),
-          ],
-          [html.text("Create New Board")],
-        ),
-      ]),
-    ]),
+fn serve_home_layout(ctx: Context) -> bytes_tree.BytesTree {
+  let ws_route = "/home/ws"
+
+  let extra_head = [
+    html.script(
+      [attribute.type_("module"), attribute.src("/lustre/runtime.mjs")],
+      "",
+    ),
+    html.script(
+      [
+        attribute.type_("module"),
+        attribute.src("/static/js/client.mjs?v=" <> ctx.asset_version),
+      ],
+      "",
+    ),
   ]
 
-  // Pass an empty list for extra_head since it only needs core defaults
-  layout("Home", [], body_content, ctx)
+  let body_content = [
+    server_component.element([server_component.route(ws_route)], []),
+  ]
+
+  layout("Home", extra_head, body_content, ctx)
 }
 
 fn layout(
@@ -289,8 +383,20 @@ fn serve_board_page(
         request: req,
         on_init: fn(_) {
           let connection_id = uuid.v7() |> uuid.to_string()
+          let init_subject = process.new_subject()
+          process.send(
+            board_manager,
+            board_api.GetBoardSnapshot(reply_to: init_subject),
+          )
+
+          let assert Ok(snapshot) = process.receive(init_subject, 1000)
           let component =
-            board_view.component(board_manager, user, board_id, connection_id)
+            board_view.component(
+              board_manager,
+              user,
+              snapshot.board,
+              connection_id,
+            )
           let assert Ok(runtime) = lustre.start_server_component(component, Nil)
 
           let self = process.new_subject()
@@ -317,11 +423,32 @@ fn serve_board_page(
   }
 }
 
-type SocketState {
-  SocketState(runtime: lustre.Runtime(board_view.Msg), connection_id: String)
+fn serve_home_page(req: Request(Connection)) -> Response(ResponseData) {
+  mist.websocket(
+    request: req,
+    on_init: fn(_) {
+      let connection_id = uuid.v7() |> uuid.to_string()
+      let component = home.component()
+
+      let assert Ok(runtime) = lustre.start_server_component(component, Nil)
+
+      let self = process.new_subject()
+      let selector = process.new_selector() |> process.select(self)
+
+      server_component.register_subject(self) |> lustre.send(to: runtime)
+
+      #(SocketState(runtime, connection_id), Some(selector))
+    },
+    handler: loop_socket,
+    on_close: fn(state) { lustre.shutdown() |> lustre.send(to: state.runtime) },
+  )
 }
 
-fn loop_socket(state: SocketState, msg, conn) {
+type SocketState(msg) {
+  SocketState(runtime: lustre.Runtime(msg), connection_id: String)
+}
+
+fn loop_socket(state: SocketState(msg), msg, conn) {
   case msg {
     mist.Text(json) -> {
       let decoder = server_component.runtime_message_decoder()

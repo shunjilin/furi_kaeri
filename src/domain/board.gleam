@@ -1,6 +1,7 @@
 import domain/card
 import domain/lane
 import domain/user
+import domain/values/non_empty_list
 import domain/values/non_empty_string
 import domain/vote
 import gleam/dict
@@ -12,7 +13,7 @@ pub opaque type Board {
   Board(
     id: String,
     title: non_empty_string.NonEmptyString,
-    lanes: List(lane.Lane),
+    lanes: non_empty_list.NonEmptyList(lane.Lane),
     phase: BoardPhase,
   )
 }
@@ -44,7 +45,7 @@ pub fn title(board: Board) -> non_empty_string.NonEmptyString {
   board.title
 }
 
-pub fn lanes(board: Board) -> List(lane.Lane) {
+pub fn lanes(board: Board) -> non_empty_list.NonEmptyList(lane.Lane) {
   board.lanes
 }
 
@@ -55,7 +56,7 @@ pub fn phase(board: Board) -> BoardPhase {
 pub fn new(
   id: String,
   title: non_empty_string.NonEmptyString,
-  lanes: List(lane.Lane),
+  lanes: non_empty_list.NonEmptyList(lane.Lane),
 ) -> Board {
   Board(id, title, lanes:, phase: DraftBoard(dict.new()))
 }
@@ -74,6 +75,7 @@ pub fn add_card(
     DraftBoard(cards) -> {
       use lane <- result.try(
         board.lanes
+        |> non_empty_list.as_list
         |> list.find(fn(l) { lane.id(l) == lane_id })
         |> result.replace_error(AddCardLaneNotFound),
       )

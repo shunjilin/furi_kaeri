@@ -3,6 +3,7 @@ import domain/card
 import domain/lane
 import domain/timer
 import domain/user
+import domain/values/non_empty_list
 import domain/values/non_empty_string
 import gleam/bool
 import gleam/dict
@@ -86,7 +87,7 @@ pub type CountdownTimer {
   InputCountdownTimer(minutes: Int)
 }
 
-pub type Model {
+pub opaque type Model {
   Model(
     board: board.Board,
     cards_under_draft: CardsUnderDraft,
@@ -127,11 +128,11 @@ pub opaque type Msg {
 pub fn component(
   manager: Subject(board_api.Message),
   user: user.User,
-  board_id: String,
+  board: board.Board,
   connection_id: String,
 ) -> lustre.App(Nil, Model, Msg) {
   lustre.application(
-    fn(_) { init(manager, user, board_id, connection_id) },
+    fn(_) { init(manager, user, board, connection_id) },
     update,
     view,
   )
@@ -140,7 +141,7 @@ pub fn component(
 fn init(
   manager: Subject(board_api.Message),
   user: user.User,
-  board_id: String,
+  board: board.Board,
   connection_id: String,
 ) -> #(Model, Effect(Msg)) {
   let self = process.new_subject()
@@ -151,10 +152,7 @@ fn init(
       snapshot.board,
       get_countdown_timer_from_snapshot(snapshot),
     )
-    Error(_) -> #(
-      board_api.init_board(board_id),
-      InputCountdownTimer(default_countdown_minutes),
-    )
+    Error(_) -> #(board, InputCountdownTimer(default_countdown_minutes))
   }
 
   let model =
@@ -377,9 +375,10 @@ fn get_countdown_timer_from_snapshot(snapshot: shared_message.BoardSnapshot) {
 fn build_view_projections(model: Model) -> BoardView {
   let user_id = user.id(model.user)
   let title = non_empty_string.to_string(board.title(model.board))
+  let lanes = model.board |> board.lanes() |> non_empty_list.as_list
 
-  let lanes =
-    list.map(board.lanes(model.board), fn(lane) {
+  let lanes_view =
+    list.map(lanes, fn(lane) {
       let lane_id = lane.id(lane)
       let draft =
         dict.get(model.cards_under_draft, lane_id) |> result.unwrap("")
@@ -416,7 +415,7 @@ fn build_view_projections(model: Model) -> BoardView {
       )
     })
 
-  BoardView(title:, lanes:)
+  BoardView(title:, lanes: lanes_view)
 }
 
 fn project_cards(
