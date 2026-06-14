@@ -103,6 +103,7 @@ h6 {
     --space-1: 0.25rem;
     --space-2: 0.5rem;
     --space-4: 1rem;
+    --space-6: 1.5rem;
     --space-8: 2rem;
 
     --color-text: #000000;
@@ -116,6 +117,7 @@ h6 {
     --color-primary: #1d4980;
     --color-secondary: #ffc187ce;
     --color-alert: #bd1d3d;
+    --color-alert-secondary: #f1b2bd;
 
     --color-border: #202327;
     --border-thin: 1px solid;
@@ -124,6 +126,11 @@ h6 {
     --box-padding: var(--space-4);
     --card-width: 200px;
     --border-width: 2px;
+
+    --shadow-sm: 0 2px 4px 0 rgba(21, 21, 21, 0.2);
+    --shadow-md: 4px 6px 1px rgba(21, 21, 21, 0.25);
+    --shadow-lg: 0 6px 8px 2px rgba(21, 21, 21, 0.3);
+    --shadow-xl: 0 8px 24px 3px rgba(21, 21, 21, 0.35);
 }
 
 body {
@@ -248,13 +255,17 @@ draggable-item:hover {
     cursor: grab;
 }
 
-.lanes {
-    display: flex;
-    gap: var(--space-2);
-}
-
 .lane {
     width: var(--card-width);
+}
+
+button.icon-button {
+    display: flex;
+    align-items: center;
+    background-color: transparent;
+    cursor: pointer;
+    padding: 0;
+    border: none;
 }
 
 button.button {
@@ -279,3 +290,28 @@ textarea {
     width: 100%;
     resize: none;
 }
+
+.board {
+    padding: var(--space-8);
+}
+
+.alerts {
+    position: fixed;
+    top: var(--space-4);
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
+}
+
+.alert {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 250px;
+    background-color: var(--color-alert-secondary);
+    color: var(--color-text);
+    border-left: solid var(--color-alert) var(--space-2);
+    padding: var(--space-6) var(--space-4);
+    box-shadow: var(--shadow-md);
+}
+

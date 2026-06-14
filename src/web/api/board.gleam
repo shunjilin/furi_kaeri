@@ -142,7 +142,12 @@ fn handle_message(
     RevealCardContents -> {
       state.board
       |> board.reveal_content()
-      |> result.replace_error("Can only reveal content in draft phase.")
+      |> result.map_error(fn(error) {
+        case error {
+          board.NotInDraftPhase -> "Can only reveal content in draft phase."
+          board.NoCardsToReveal -> "No cards to reveal."
+        }
+      })
       |> handle_board_result(state)
     }
 

@@ -4,6 +4,7 @@ import domain/user
 import domain/values/non_empty_list
 import domain/values/non_empty_string
 import domain/vote
+import gleam/bool
 import gleam/dict
 import gleam/list
 import gleam/option
@@ -199,18 +200,23 @@ pub fn merge_cards(
   }
 }
 
-pub type TransitionError {
-  InvalidTransitionState
+pub type RevealError {
+  NotInDraftPhase
+  NoCardsToReveal
 }
 
-pub fn reveal_content(board: Board) -> Result(Board, TransitionError) {
-  case board.phase {
-    DraftBoard(cards) -> {
-      let transitioned = transition_cards(cards, card.reveal_content)
-      Ok(Board(..board, phase: ReviewBoard(transitioned)))
-    }
-    _ -> Error(InvalidTransitionState)
-  }
+pub fn reveal_content(board: Board) -> Result(Board, RevealError) {
+  use cards <- result.try(case board.phase {
+    DraftBoard(cards) -> Ok(cards)
+    _ -> Error(NotInDraftPhase)
+  })
+  use <- bool.guard(when: dict.is_empty(cards), return: Error(NoCardsToReveal))
+  let transitioned = transition_cards(cards, card.reveal_content)
+  Ok(Board(..board, phase: ReviewBoard(transitioned)))
+}
+
+pub type TransitionError {
+  InvalidTransitionState
 }
 
 pub fn reveal_votes(board: Board) -> Result(Board, TransitionError) {

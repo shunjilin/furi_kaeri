@@ -11,7 +11,6 @@ import gleam/dynamic/decode
 import gleam/erlang/process.{type Subject}
 import gleam/float
 import gleam/int
-import gleam/io
 import gleam/json
 import gleam/list
 import gleam/option
@@ -87,6 +86,10 @@ pub type CountdownTimer {
   InputCountdownTimer(minutes: Int)
 }
 
+pub type Alert {
+  ErrorAlert(message: String)
+}
+
 pub opaque type Model {
   Model(
     board: board.Board,
@@ -96,6 +99,7 @@ pub opaque type Model {
     user: user.User,
     manager: Subject(board_api.Message),
     countdown_timer: CountdownTimer,
+    alerts: List(Alert),
   )
 }
 
@@ -122,7 +126,7 @@ pub opaque type Msg {
   UserSubmittedCountdownTimer(minutes: Int)
   UserChangedCountdownTimerInput(minutes: Int)
   UserStoppedCountdownTimer
-  UserReceivedError(String)
+  UserRemovedAlert(index: Int)
 }
 
 pub fn component(
@@ -164,6 +168,7 @@ fn init(
       user: user,
       manager: manager,
       card_under_drag: option.None,
+      alerts: [],
     )
 
   let pubsub_effect = {
@@ -330,9 +335,20 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       #(model, run_cmd)
     }
 
-    UserReceivedError(err) -> {
-      io.println(err)
-      #(model, effect.none())
+    UserRemovedAlert(index_to_remove) -> {
+      let alerts =
+        list.index_fold(
+          over: model.alerts,
+          from: [],
+          with: fn(acc, alert, index) {
+            case index == index_to_remove {
+              True -> acc
+              False -> [alert, ..acc]
+            }
+          },
+        )
+        |> list.reverse
+      #(Model(..model, alerts:), effect.none())
     }
 
     AppReceivedSharedMsg(shared_message.ApiReturnedBoardSnapshot(snapshot)) -> {
@@ -359,8 +375,14 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       )
     }
 
-    AppReceivedSharedMsg(shared_message.ApiReturnedError(_error)) -> {
-      #(model, effect.none())
+    AppReceivedSharedMsg(shared_message.ApiReturnedError(error)) -> {
+      #(
+        Model(
+          ..model,
+          alerts: list.append(model.alerts, [ErrorAlert(message: error)]),
+        ),
+        effect.none(),
+      )
     }
   }
 }
@@ -502,80 +524,104 @@ fn maybe_mask(
 fn view(model: Model) -> Element(Msg) {
   let board_view = build_view_projections(model)
 
-  html.div([attribute.class("stack horizontal-center")], [
-    html.div([attribute.class("heading")], [
-      html.h1([], [html.text(board_view.title)]),
-      case board.phase(model.board) {
-        board.DraftBoard(_) ->
-          element.element(
-            "confirm-action",
-            [
-              attribute.attribute(
-                "message",
-                "Are you ready to reveal the board's contents?",
-              ),
-            ],
-            [
-              html.button(
-                [
-                  attribute.class("button"),
+  html.div([], [
+    render_alerts(model.alerts),
+    html.div([attribute.class("board stack horizontal-center")], [
+      html.div([attribute.class("heading")], [
+        html.h1([], [html.text(board_view.title)]),
+        case board.phase(model.board) {
+          board.DraftBoard(_) ->
+            element.element(
+              "confirm-action",
+              [
+                attribute.attribute(
+                  "message",
+                  "Are you ready to reveal the board's contents?",
+                ),
+              ],
+              [
+                html.button(
+                  [
+                    attribute.class("button"),
 
-                  event.on_click(UserRevealedBoardContents),
-                ],
-                [html.text("Reveal Card Contents")],
-              ),
-            ],
-          )
+                    event.on_click(UserRevealedBoardContents),
+                  ],
+                  [html.text("Reveal Card Contents")],
+                ),
+              ],
+            )
 
-        board.ReviewBoard(_) ->
-          element.element(
-            "confirm-action",
-            [
-              attribute.attribute("message", "Are you ready to start voting?"),
-            ],
-            [
-              html.button(
-                [
-                  attribute.class("button"),
+          board.ReviewBoard(_) ->
+            element.element(
+              "confirm-action",
+              [
+                attribute.attribute("message", "Are you ready to start voting?"),
+              ],
+              [
+                html.button(
+                  [
+                    attribute.class("button"),
 
-                  event.on_click(UserStartedVoting),
-                ],
-                [html.text("Start Voting")],
-              ),
-            ],
-          )
-        board.VotingBoard(_) ->
-          element.element(
-            "confirm-action",
-            [
-              attribute.attribute(
-                "message",
-                "Are you ready to reveal all votes?",
-              ),
-            ],
-            [
-              html.button(
-                [
-                  attribute.class("button"),
+                    event.on_click(UserStartedVoting),
+                  ],
+                  [html.text("Start Voting")],
+                ),
+              ],
+            )
+          board.VotingBoard(_) ->
+            element.element(
+              "confirm-action",
+              [
+                attribute.attribute(
+                  "message",
+                  "Are you ready to reveal all votes?",
+                ),
+              ],
+              [
+                html.button(
+                  [
+                    attribute.class("button"),
 
-                  event.on_click(UserRevealedVotes),
-                ],
-                [html.text("Reveal Votes")],
-              ),
-            ],
-          )
+                    event.on_click(UserRevealedVotes),
+                  ],
+                  [html.text("Reveal Votes")],
+                ),
+              ],
+            )
 
-        _ -> element.none()
-      },
+          _ -> element.none()
+        },
+      ]),
+      html.div([attribute.class("countdown-timer")], [
+        render_countdown_timer(model.countdown_timer),
+      ]),
+      html.div(
+        [attribute.class("cluster")],
+        list.map(board_view.lanes, render_lane),
+      ),
     ]),
-    html.div([attribute.class("countdown-timer")], [
-      render_countdown_timer(model.countdown_timer),
-    ]),
-    html.div(
-      [attribute.class("lanes")],
-      list.map(board_view.lanes, render_lane),
-    ),
   ])
+}
+
+fn render_alerts(alerts: List(Alert)) -> Element(Msg) {
+  html.div(
+    [attribute.class("stack alerts")],
+    list.index_map(alerts, fn(alert, index) {
+      html.div([attribute.class("alert"), attribute.role("alert")], [
+        html.text(alert.message),
+        html.button(
+          [
+            attribute.class("icon-button"),
+            attribute.type_("button"),
+            event.on_click(UserRemovedAlert(index)),
+          ],
+          [
+            element.element("lucide-x", [], []),
+          ],
+        ),
+      ])
+    }),
+  )
 }
 
 fn render_countdown_timer(countdown_timer: CountdownTimer) -> Element(Msg) {

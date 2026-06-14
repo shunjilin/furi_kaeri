@@ -95,6 +95,7 @@ fn render_lane_title_inputs(lanes: List(String)) -> element.Element(Msg) {
                   [
                     attribute.class("button"),
                     attribute.type_("button"),
+                    attribute.data("type", "delete"),
                     event.on_click(UserRemovedLane),
                   ],
                   [html.text("Remove Lane")],

@@ -119,3 +119,35 @@ class AppTimer extends HTMLElement {
 }
 
 customElements.define('app-timer', AppTimer);
+
+class LucideXIcon extends HTMLElement {
+    constructor() {
+        super();
+        this.attachShadow({ mode: 'open' });
+    }
+
+    connectedCallback() {
+        this.shadowRoot.innerHTML = `
+            <style>
+                :host {
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    width: var(--icon-size, var(--space-4));
+                    height: var(--icon-size, var(--space-4));
+                    color: var(--icon-color, var(--color-text));
+                }
+                svg {
+                    width: 100%;
+                    height: 100%;
+                }
+            </style>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M18 6 6 18"/>
+                <path d="m6 6 12 12"/>
+            </svg>
+        `;
+    }
+}
+
+customElements.define('lucide-x', LucideXIcon);
