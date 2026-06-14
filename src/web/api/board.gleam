@@ -63,6 +63,7 @@ pub fn start_link(
       stale_timer: option.None,
       subject: subject,
     )
+    |> start_stale_timer_if_no_subscribers()
     |> actor.initialised
     |> actor.returning(subject)
     |> Ok
