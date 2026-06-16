@@ -21,7 +21,7 @@ pub fn security_headers_middleware(
     let res = handler(req)
 
     res
-    //|> response.set_header("content-security-policy", "default-src 'self'")
+    |> response.set_header("content-security-policy", "default-src 'self'")
     |> response.set_header("x-xss-protection", "1; mode=block")
     |> response.set_header("x-frame-options", "DENY")
     |> response.set_header("x-content-type-options", "nosniff")
