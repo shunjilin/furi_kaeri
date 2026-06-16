@@ -8,7 +8,6 @@ import gleam/bytes_tree
 import gleam/erlang/application
 import gleam/erlang/process.{type Subject}
 import gleam/http
-import gleam/http/cookie
 import gleam/http/request.{type Request}
 import gleam/http/response.{type Response}
 import gleam/json
@@ -24,11 +23,10 @@ import lustre/server_component
 import mist.{type Connection, type ResponseData}
 import web/api/board as board_api
 import web/board_registry
+import web/middleware
 import web/views/board as board_view
 import web/views/home
 import youid/uuid
-
-const user_id_key: String = "user_id"
 
 pub type Context {
   Context(
@@ -39,57 +37,30 @@ pub type Context {
   )
 }
 
-type GetUserResult {
-  NewUser(user.User)
-  ExistingUser(user.User)
-}
-
-fn get_user(req: Request(Connection)) -> GetUserResult {
-  let result =
-    req
-    |> request.get_cookies
-    |> list.find_map(fn(cookie) {
-      case cookie {
-        #(key, user_id_string) if key == user_id_key -> {
-          user_id_string
-          |> uuid.from_string()
-          |> result.map(fn(uuid) { user.new(user.UserId(uuid)) })
-        }
-        _ -> Error(Nil)
-      }
-    })
-
-  case result {
-    Ok(user) -> ExistingUser(user)
-    Error(Nil) -> NewUser(user.new(user.gen_id()))
-  }
-}
-
-pub fn handle_request(
+pub fn router(
   req: Request(Connection),
+  user_result: middleware.GetUserResult,
   ctx: Context,
 ) -> Response(ResponseData) {
-  let user_result = get_user(req)
-
   let user = case user_result {
-    NewUser(user) -> {
+    middleware.NewUser(user) -> {
       user
     }
-    ExistingUser(user) -> user
+    middleware.ExistingUser(user) -> user
   }
 
   let board_registry = process.named_subject(ctx.board_registry)
   case request.path_segments(req), req.method {
-    [], http.Get -> serve_home_layout(ctx) |> serve_page(user_result, ctx)
+    [], http.Get -> serve_home_layout(ctx) |> serve_page
     ["board", board_id], http.Get -> {
       case board_registry.get_board(board_registry, board.BoardId(board_id)) {
-        Ok(_) ->
-          serve_board_layout(board_id, ctx) |> serve_page(user_result, ctx)
-        Error(board_registry.BoardDoesNotExist) ->
+        Ok(_) -> serve_board_layout(board_id, ctx) |> serve_page
+        Error(board_registry.BoardDoesNotExist) -> {
           response.new(404)
           |> response.set_body(
             mist.Bytes(bytes_tree.from_string("Board not found.")),
           )
+        }
       }
     }
     ["board", "create"], http.Post -> handle_create_board(board_registry, req)
@@ -107,18 +78,6 @@ pub fn handle_request(
       serve_board_page(req, board_registry, user, board.BoardId(board_id))
     _, _ -> not_found()
   }
-}
-
-fn cookie_attributes(ctx: Context) {
-  cookie.Attributes(
-    // 12 hours
-    option.Some(60 * 60 * 12),
-    option.Some(""),
-    option.None,
-    ctx.cookie_secure,
-    True,
-    option.Some(cookie.Strict),
-  )
 }
 
 pub fn parse_board_form(
@@ -250,15 +209,10 @@ fn serve_static(
   |> result.lazy_unwrap(fn() { not_found() })
 }
 
-fn serve_page(
-  html_body: bytes_tree.BytesTree,
-  user_result: GetUserResult,
-  ctx: Context,
-) -> Response(ResponseData) {
+fn serve_page(html_body: bytes_tree.BytesTree) -> Response(ResponseData) {
   response.new(200)
   |> response.set_body(mist.Bytes(html_body))
   |> response.set_header("content-type", "text/html")
-  |> assign_user(user_result, ctx)
 }
 
 fn serve_board_layout(board_id: String, ctx: Context) -> bytes_tree.BytesTree {
@@ -335,27 +289,6 @@ fn layout(
   |> bytes_tree.from_string_tree
 }
 
-fn assign_user(
-  response: Response(ResponseData),
-  user_result: GetUserResult,
-  ctx: Context,
-) -> Response(ResponseData) {
-  case user_result {
-    NewUser(user) -> {
-      let user.UserId(uuid) = user.id(user)
-      response.set_cookie(
-        response,
-        user_id_key,
-        uuid.to_string(uuid),
-        cookie_attributes(ctx),
-      )
-    }
-    ExistingUser(_) -> {
-      response
-    }
-  }
-}
-
 fn serve_runtime() -> Response(ResponseData) {
   let assert Ok(priv) = application.priv_directory("lustre")
   let path = priv <> "/static/lustre-server-component.min.mjs"
@@ -377,42 +310,54 @@ fn serve_board_page(
 ) -> Response(ResponseData) {
   case board_registry.get_board(board_registry, board_id) {
     Ok(board_manager) -> {
-      mist.websocket(
-        request: req,
-        on_init: fn(_) {
-          let connection_id = uuid.v7() |> uuid.to_string()
-          let init_subject = process.new_subject()
-          process.send(
-            board_manager,
-            board_api.GetBoardSnapshot(reply_to: init_subject),
-          )
-
-          let assert Ok(snapshot) = process.receive(init_subject, 1000)
-          let component =
-            board_view.component(
-              board_manager,
-              user,
-              snapshot.board,
-              connection_id,
-            )
-          let assert Ok(runtime) = lustre.start_server_component(component, Nil)
-
-          let self = process.new_subject()
-          let selector = process.new_selector() |> process.select(self)
-
-          server_component.register_subject(self) |> lustre.send(to: runtime)
-
-          #(SocketState(runtime, connection_id), Some(selector))
-        },
-        handler: loop_socket,
-        on_close: fn(state) {
-          process.send(
-            board_manager,
-            board_api.Unsubscribe(state.connection_id),
-          )
-          lustre.shutdown() |> lustre.send(to: state.runtime)
-        },
+      let init_subject = process.new_subject()
+      process.send(
+        board_manager,
+        board_api.GetBoardSnapshot(reply_to: init_subject),
       )
+      case process.receive(init_subject, 1000) {
+        Error(_) -> {
+          response.new(503)
+          |> response.set_header("content-type", "text/plain")
+          |> response.set_body(
+            mist.Bytes(bytes_tree.from_string("Server busy.")),
+          )
+        }
+        Ok(snapshot) -> {
+          mist.websocket(
+            request: req,
+            on_init: fn(_) {
+              let connection_id = uuid.v7() |> uuid.to_string()
+
+              let component =
+                board_view.component(
+                  board_manager,
+                  user,
+                  snapshot.board,
+                  connection_id,
+                )
+              let assert Ok(runtime) =
+                lustre.start_server_component(component, Nil)
+
+              let self = process.new_subject()
+              let selector = process.new_selector() |> process.select(self)
+
+              server_component.register_subject(self)
+              |> lustre.send(to: runtime)
+
+              #(SocketState(runtime, connection_id), Some(selector))
+            },
+            handler: loop_socket,
+            on_close: fn(state) {
+              process.send(
+                board_manager,
+                board_api.Unsubscribe(state.connection_id),
+              )
+              lustre.shutdown() |> lustre.send(to: state.runtime)
+            },
+          )
+        }
+      }
     }
     Error(_) -> {
       response.new(404)

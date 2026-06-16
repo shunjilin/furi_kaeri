@@ -8,7 +8,22 @@ import mist
 import radiate
 import web/api/board as board_api
 import web/board_registry
+import web/middleware
 import web/router
+
+fn get_allowed_origin(is_production: Bool) -> Result(String, String) {
+  case is_production {
+    True -> {
+      envoy.get("ALLOWED_ORIGIN")
+      |> result.map_error(fn(_) {
+        "'ALLOWED_ORIGIN' environment variable is missing in production!"
+      })
+    }
+    False -> {
+      Ok("http://localhost:8080")
+    }
+  }
+}
 
 pub fn main() -> Nil {
   let env_string = envoy.get("GLEAM_ENV") |> result.unwrap("development")
@@ -16,6 +31,13 @@ pub fn main() -> Nil {
     envoy.get("FLY_MACHINE_VERSION") |> result.unwrap("development")
 
   let is_production = env_string == "production"
+
+  let allowed_origin = case get_allowed_origin(is_production) {
+    Ok(origin) -> origin
+    Error(error_message) -> {
+      panic as error_message
+    }
+  }
 
   let _ = case is_production {
     False -> {
@@ -53,8 +75,12 @@ pub fn main() -> Nil {
       cache_assets: is_production,
     )
 
+  let router_with_context = fn(req, user) { router.router(req, user, ctx) }
+
   let assert Ok(_) =
-    router.handle_request(_, ctx)
+    router_with_context
+    |> middleware.auth_middleware(ctx.cookie_secure, allowed_origin)
+    |> middleware.security_headers_middleware
     |> mist.new
     |> mist.bind("0.0.0.0")
     |> mist.port(8080)
