@@ -1,3 +1,4 @@
+import gleam/int
 import gleam/list
 import lustre
 import lustre/attribute
@@ -6,7 +7,7 @@ import lustre/element/html
 import lustre/event
 
 pub opaque type Model {
-  Model(lanes: List(String))
+  Model(number_of_active_boards: Int, lanes: List(String))
 }
 
 pub opaque type Msg {
@@ -14,43 +15,53 @@ pub opaque type Msg {
   UserAddedLane
 }
 
-pub fn component() -> lustre.App(Nil, Model, Msg) {
+pub fn component() -> lustre.App(Int, Model, Msg) {
   lustre.simple(init, update, view)
 }
 
-fn init(_) -> Model {
-  Model(lanes: ["Start", "Stop", "Continue"])
+fn init(number_of_active_boards) -> Model {
+  Model(number_of_active_boards:, lanes: ["Start", "Stop", "Continue"])
 }
 
 fn update(model: Model, msg: Msg) -> Model {
   case msg {
     UserRemovedLane -> {
-      Model(lanes: list.take(model.lanes, list.length(model.lanes) - 1))
+      Model(
+        ..model,
+        lanes: list.take(model.lanes, list.length(model.lanes) - 1),
+      )
     }
     UserAddedLane -> {
-      Model(lanes: list.append(model.lanes, [""]))
+      Model(..model, lanes: list.append(model.lanes, [""]))
     }
   }
 }
 
 fn view(model: Model) -> element.Element(Msg) {
-  html.form(
-    [
-      attribute.class("stack center create-lanes-form"),
-      attribute.method("POST"),
-      attribute.action("/board/create"),
-    ],
-    [
-      render_lane_title_inputs(model.lanes),
-      html.button(
-        [
-          attribute.class("button"),
-          attribute.type_("submit"),
-        ],
-        [html.text("Create New Board")],
+  html.div([attribute.class("stack center")], [
+    html.form(
+      [
+        attribute.class("stack  create-lanes-form"),
+        attribute.method("POST"),
+        attribute.action("/board/create"),
+      ],
+      [
+        render_lane_title_inputs(model.lanes),
+        html.button(
+          [
+            attribute.class("button"),
+            attribute.type_("submit"),
+          ],
+          [html.text("Create New Board")],
+        ),
+      ],
+    ),
+    html.div([], [
+      html.text(
+        int.to_string(model.number_of_active_boards) <> " active boards",
       ),
-    ],
-  )
+    ]),
+  ])
 }
 
 fn render_lane_title_inputs(lanes: List(String)) -> element.Element(Msg) {

@@ -22,6 +22,7 @@ pub type Message {
     id: board.BoardId,
     reply_to: Subject(Result(Subject(board_api.Message), GetError)),
   )
+  GetNumberOfActiveBoards(reply_to: Subject(Int))
 }
 
 pub fn start(
@@ -88,6 +89,10 @@ fn handle_message(
         }
       }
     }
+    GetNumberOfActiveBoards(reply_to) -> {
+      process.send(reply_to, dict.size(state))
+      actor.continue(state)
+    }
   }
 }
 
@@ -110,4 +115,8 @@ pub fn get_board(
   id: board.BoardId,
 ) -> Result(Subject(board_api.Message), GetError) {
   process.call(manager, 1000, GetBoard(id, _))
+}
+
+pub fn get_number_of_active_boards(manager: Subject(Message)) -> Int {
+  process.call(manager, 1000, GetNumberOfActiveBoards)
 }

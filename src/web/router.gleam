@@ -98,7 +98,11 @@ pub fn handle_request(
     ["static", "js", "client.mjs"], http.Get ->
       serve_static("priv/static/js/client.mjs", "text/javascript", ctx)
     ["lustre", "runtime.mjs"], http.Get -> serve_runtime()
-    ["home", "ws"], http.Get -> serve_home_page(req)
+    ["home", "ws"], http.Get -> {
+      let number_of_active_boards =
+        board_registry.get_number_of_active_boards(board_registry)
+      serve_home_page(req, number_of_active_boards)
+    }
     ["board", board_id, "ws"], http.Get ->
       serve_board_page(req, board_registry, user, board.BoardId(board_id))
     _, _ -> not_found()
@@ -417,14 +421,18 @@ fn serve_board_page(
   }
 }
 
-fn serve_home_page(req: Request(Connection)) -> Response(ResponseData) {
+fn serve_home_page(
+  req: Request(Connection),
+  number_of_active_boards: Int,
+) -> Response(ResponseData) {
   mist.websocket(
     request: req,
     on_init: fn(_) {
       let connection_id = uuid.v7() |> uuid.to_string()
       let component = home.component()
 
-      let assert Ok(runtime) = lustre.start_server_component(component, Nil)
+      let assert Ok(runtime) =
+        lustre.start_server_component(component, number_of_active_boards)
 
       let self = process.new_subject()
       let selector = process.new_selector() |> process.select(self)
