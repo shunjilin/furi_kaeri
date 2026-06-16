@@ -4,6 +4,7 @@ import domain/user
 import domain/values/non_empty_list
 import domain/values/non_empty_string
 import domain/vote
+import friendly_id
 import gleam/bool
 import gleam/dict
 import gleam/list
@@ -12,7 +13,7 @@ import gleam/result
 
 pub opaque type Board {
   Board(
-    id: String,
+    id: BoardId,
     title: non_empty_string.NonEmptyString,
     lanes: non_empty_list.NonEmptyList(lane.Lane),
     phase: BoardPhase,
@@ -38,7 +39,14 @@ pub type BoardId {
   BoardId(String)
 }
 
-pub fn id(board: Board) -> String {
+pub fn generate_id() -> BoardId {
+  friendly_id.new_generator()
+  |> friendly_id.set_generator_separator("_")
+  |> friendly_id.generate()
+  |> BoardId
+}
+
+pub fn id(board: Board) -> BoardId {
   board.id
 }
 
@@ -55,7 +63,7 @@ pub fn phase(board: Board) -> BoardPhase {
 }
 
 pub fn new(
-  id: String,
+  id: BoardId,
   title: non_empty_string.NonEmptyString,
   lanes: non_empty_list.NonEmptyList(lane.Lane),
 ) -> Board {

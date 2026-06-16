@@ -3,7 +3,6 @@ import domain/lane
 import domain/user
 import domain/values/non_empty_list
 import domain/values/non_empty_string
-import friendly_id
 import gleam/bit_array
 import gleam/bytes_tree
 import gleam/erlang/application
@@ -83,7 +82,7 @@ pub fn handle_request(
   case request.path_segments(req), req.method {
     [], http.Get -> serve_home_layout(ctx) |> serve_page(user_result, ctx)
     ["board", board_id], http.Get -> {
-      case board_registry.get_board(board_registry, board_id) {
+      case board_registry.get_board(board_registry, board.BoardId(board_id)) {
         Ok(_) ->
           serve_board_layout(board_id, ctx) |> serve_page(user_result, ctx)
         Error(board_registry.BoardDoesNotExist) ->
@@ -101,7 +100,7 @@ pub fn handle_request(
     ["lustre", "runtime.mjs"], http.Get -> serve_runtime()
     ["home", "ws"], http.Get -> serve_home_page(req)
     ["board", board_id, "ws"], http.Get ->
-      serve_board_page(req, board_registry, user, board_id)
+      serve_board_page(req, board_registry, user, board.BoardId(board_id))
     _, _ -> not_found()
   }
 }
@@ -118,15 +117,9 @@ fn cookie_attributes(ctx: Context) {
   )
 }
 
-fn generate_board_id() -> String {
-  friendly_id.new_generator()
-  |> friendly_id.set_generator_separator("_")
-  |> friendly_id.generate()
-}
-
 pub fn parse_board_form(
   body_bit_array: BitArray,
-  board_id: String,
+  board_id: board.BoardId,
 ) -> Result(board.Board, Nil) {
   use body_string <- result.try(
     bit_array.to_string(body_bit_array) |> result.replace_error(Nil),
@@ -178,7 +171,7 @@ fn handle_create_board(
 ) -> Response(ResponseData) {
   case mist.read_body(req, 102_400) {
     Ok(req_with_body) -> {
-      case parse_board_form(req_with_body.body, generate_board_id()) {
+      case parse_board_form(req_with_body.body, board.generate_id()) {
         Error(Nil) ->
           response.new(422)
           |> response.set_body(
@@ -189,8 +182,9 @@ fn handle_create_board(
         Ok(board) -> {
           case board_registry.create_board(board_registry, board) {
             Ok(_) -> {
+              let board.BoardId(id) = board.id(board)
               response.new(303)
-              |> response.set_header("location", "/board/" <> board.id(board))
+              |> response.set_header("location", "/board/" <> id)
               |> response.set_body(mist.Bytes(bytes_tree.new()))
             }
             Error(board_registry.BoardAlreadyExist) -> {
@@ -375,7 +369,7 @@ fn serve_board_page(
   req: Request(Connection),
   board_registry: Subject(board_registry.Message),
   user: user.User,
-  board_id: String,
+  board_id: board.BoardId,
 ) -> Response(ResponseData) {
   case board_registry.get_board(board_registry, board_id) {
     Ok(board_manager) -> {

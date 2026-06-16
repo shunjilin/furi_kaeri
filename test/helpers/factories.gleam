@@ -5,7 +5,6 @@ import domain/user
 import domain/values/non_empty_list
 import domain/values/non_empty_string as nes
 import domain/vote
-import youid/uuid
 
 pub fn non_empty_string(content: String) -> nes.NonEmptyString {
   let assert Ok(nes) = nes.new(content)
@@ -32,7 +31,7 @@ pub fn vote() -> vote.Vote {
 
 pub fn board() -> board.Board {
   board.new(
-    uuid.v7() |> uuid.to_string(),
+    board.generate_id(),
     non_empty_string("Board"),
     non_empty_list.NonEmptyList(first: lane(), rest: []),
   )

@@ -11,7 +11,7 @@ pub fn new_test() {
 
   let board =
     board.new(
-      "test",
+      board.generate_id(),
       title,
       non_empty_list.NonEmptyList(first: lane_1, rest: [lane_2]),
     )

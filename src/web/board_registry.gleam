@@ -19,7 +19,7 @@ pub type Message {
     reply_to: Subject(Result(Subject(board_api.Message), CreateError)),
   )
   GetBoard(
-    id: String,
+    id: board.BoardId,
     reply_to: Subject(Result(Subject(board_api.Message), GetError)),
   )
 }
@@ -40,7 +40,7 @@ pub fn start(
 }
 
 fn handle_message(
-  state: Dict(String, Subject(board_api.Message)),
+  state: Dict(board.BoardId, Subject(board_api.Message)),
   msg: Message,
   board_factory_name: process.Name(
     factory.Message(board.Board, process.Subject(board_api.Message)),
@@ -107,7 +107,7 @@ pub fn create_board(
 
 pub fn get_board(
   manager: Subject(Message),
-  id: String,
+  id: board.BoardId,
 ) -> Result(Subject(board_api.Message), GetError) {
   process.call(manager, 1000, GetBoard(id, _))
 }
