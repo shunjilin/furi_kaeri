@@ -15,6 +15,7 @@ import gleam/json
 import gleam/list
 import gleam/option
 import gleam/result
+import gleam/set
 import gleam/string
 import gleam/time/duration
 import lustre
@@ -34,7 +35,7 @@ type CardsUnderDraft =
   dict.Dict(lane.LaneId, String)
 
 type CardsUnderEdit =
-  dict.Dict(#(lane.LaneId, card.CardId), String)
+  set.Set(#(lane.LaneId, card.CardId))
 
 pub type CardUnderDrag {
   CardUnderDrag(card_id: card.CardId)
@@ -105,14 +106,8 @@ pub opaque type Model {
 
 pub opaque type Msg {
   AppReceivedSharedMsg(shared_message.SharedMsg)
-  UserUpdatedDraftCard(lane_id: lane.LaneId, content: String)
-  UserSetEditCard(lane_id: lane.LaneId, card_id: card.CardId, content: String)
+  UserSetEditCard(lane_id: lane.LaneId, card_id: card.CardId)
   UserUnsetEditCard(lane_id: lane.LaneId, card_id: card.CardId)
-  UserUpdatedEditCard(
-    lane_id: lane.LaneId,
-    card_id: card.CardId,
-    content: String,
-  )
   UserEditedCard(lane_id: lane.LaneId, card_id: card.CardId, content: String)
   UserAddedCard(lane_id: lane.LaneId, content: String)
   UserDeletedCard(card_id: card.CardId)
@@ -164,7 +159,7 @@ fn init(
       board:,
       countdown_timer:,
       cards_under_draft: dict.new(),
-      cards_under_edit: dict.new(),
+      cards_under_edit: set.new(),
       user: user,
       manager: manager,
       card_under_drag: option.None,
@@ -184,27 +179,15 @@ fn init(
 
 fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
   case msg {
-    UserUpdatedDraftCard(lane_id, content) -> {
-      let cards_under_draft =
-        dict.insert(model.cards_under_draft, lane_id, content)
-      #(Model(..model, cards_under_draft:), effect.none())
-    }
-
-    UserSetEditCard(lane_id, card_id, content) -> {
+    UserSetEditCard(lane_id, card_id) -> {
       let cards_under_edit =
-        dict.insert(model.cards_under_edit, #(lane_id, card_id), content)
+        set.insert(model.cards_under_edit, #(lane_id, card_id))
       #(Model(..model, cards_under_edit:), effect.none())
     }
 
     UserUnsetEditCard(lane_id, card_id) -> {
       let cards_under_edit =
-        dict.delete(model.cards_under_edit, #(lane_id, card_id))
-      #(Model(..model, cards_under_edit:), effect.none())
-    }
-
-    UserUpdatedEditCard(lane_id, card_id, content) -> {
-      let cards_under_edit =
-        dict.insert(model.cards_under_edit, #(lane_id, card_id), content)
+        set.delete(model.cards_under_edit, #(lane_id, card_id))
       #(Model(..model, cards_under_edit:), effect.none())
     }
 
@@ -229,7 +212,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           )
         })
       let cards_under_edit =
-        dict.delete(model.cards_under_edit, #(lane_id, card_id))
+        set.delete(model.cards_under_edit, #(lane_id, card_id))
       #(Model(..model, cards_under_edit:), run_cmd)
     }
 
@@ -459,11 +442,12 @@ fn map_draft_card(
   user_id: user.UserId,
 ) -> CardView {
   let content = non_empty_string.to_string(card.content(card))
+  let card_id = card.id(card)
+  let is_editing = set.contains(model.cards_under_edit, #(lane_id, card_id))
 
-  case dict.get(model.cards_under_edit, #(lane_id, card.id(card))) {
-    Ok(edit_content) ->
-      EditCardView(id: card.id(card), lane_id:, content: edit_content)
-    Error(_) -> {
+  case is_editing {
+    True -> EditCardView(id: card.id(card), lane_id:, content:)
+    False -> {
       let masked = maybe_mask(user_id, content, card.author_id(card))
       let is_author = card.author_id(card) == user_id
       ShowCardView(id: card.id(card), lane_id:, content: masked, is_author:)
@@ -702,26 +686,28 @@ fn render_lane(lane: LaneView) -> Element(Msg) {
 fn render_add_card(lane_id: lane.LaneId, draft: String) -> Element(Msg) {
   let lane.LaneId(lane_id_as_uuid) = lane_id
   let lane_id_as_string = uuid.to_string(lane_id_as_uuid)
+  let field_name = lane_id_as_string <> "draft"
 
   html.form(
     [
       attribute.class("card"),
-      event.on_submit(fn(_) { UserAddedCard(lane_id, content: draft) }),
+      event.on_submit(fn(form_data) {
+        let content = case list.key_find(form_data, field_name) {
+          Ok(c) -> c
+          Error(_) -> ""
+        }
+        UserAddedCard(lane_id, content:)
+      }),
     ],
     [
       html.textarea(
         [
-          attribute.id(lane_id_as_string <> "draft"),
+          attribute.id(field_name),
+          attribute.name(field_name),
           attribute.aria_label("Draft Card"),
           attribute.required(True),
           attribute.placeholder("Add a card..."),
           attribute.rows(3),
-          event.debounce(
-            event.on_input(fn(content) {
-              UserUpdatedDraftCard(lane_id:, content:)
-            }),
-            200,
-          ),
         ],
         draft,
       ),
@@ -735,8 +721,6 @@ fn render_add_card(lane_id: lane.LaneId, draft: String) -> Element(Msg) {
 }
 
 fn render_card(card: CardView) -> Element(Msg) {
-  let lane.LaneId(lane_id_as_uuid) = card.lane_id
-  let lane_id_as_string = uuid.to_string(lane_id_as_uuid)
   let card.CardId(card_id_as_uuid) = card.id
   let card_id_as_string = uuid.to_string(card_id_as_uuid)
 
@@ -826,7 +810,7 @@ fn render_card(card: CardView) -> Element(Msg) {
             [
               attribute.class("button"),
               attribute.class("card__edit"),
-              event.on_click(UserSetEditCard(lane_id, id, content)),
+              event.on_click(UserSetEditCard(lane_id, id)),
             ],
             [html.text("Edit")],
           )
@@ -867,28 +851,28 @@ fn render_card(card: CardView) -> Element(Msg) {
       ])
     }
 
-    EditCardView(id, lane_id, content) ->
+    EditCardView(id, lane_id, content) -> {
+      let field_name = card_id_as_string <> "edit"
       html.form(
         [
           attribute.class("card"),
-          event.on_submit(fn(_) {
-            UserEditedCard(lane_id:, card_id: id, content:)
+          event.on_submit(fn(form_data) {
+            let final_content = case list.key_find(form_data, field_name) {
+              Ok(c) -> c
+              Error(_) -> content
+            }
+            UserEditedCard(lane_id:, card_id: id, content: final_content)
           }),
         ],
         [
           html.textarea(
             [
-              attribute.id(lane_id_as_string <> "edit"),
+              attribute.id(field_name),
+              attribute.name(field_name),
               attribute.aria_label("Edit Card"),
               attribute.required(True),
               attribute.placeholder("Edit card.."),
               attribute.rows(3),
-              event.debounce(
-                event.on_input(fn(c) {
-                  UserUpdatedEditCard(lane_id:, card_id: id, content: c)
-                }),
-                200,
-              ),
             ],
             content,
           ),
@@ -899,5 +883,6 @@ fn render_card(card: CardView) -> Element(Msg) {
           ]),
         ],
       )
+    }
   }
 }
