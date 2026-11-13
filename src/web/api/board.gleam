@@ -38,8 +38,11 @@ pub type Message {
   Vote(user_id: user.UserId, card_id: card.CardId)
   RemoveVote(user_id: user.UserId, card_id: card.CardId)
   RevealCardContents
+  HideCardContents
   StartVoting
+  StopVoting
   RevealVotes
+  HideVotes
   Subscribe(id: String, client: Subject(shared_message.SharedMsg))
   Unsubscribe(id: String)
   DeleteBoard
@@ -152,6 +155,18 @@ fn handle_message(
       |> handle_board_result(state)
     }
 
+    HideCardContents -> {
+      state.board
+      |> board.hide_content()
+      |> result.map_error(fn(error) {
+        case error {
+          board.InvalidTransitionState ->
+            "Can only hide content in review phase."
+        }
+      })
+      |> handle_board_result(state)
+    }
+
     RevealVotes -> {
       state.board
       |> board.reveal_votes()
@@ -164,6 +179,18 @@ fn handle_message(
       |> handle_board_result(state)
     }
 
+    HideVotes -> {
+      state.board
+      |> board.hide_votes()
+      |> result.map_error(fn(err) {
+        case err {
+          board.InvalidTransitionState ->
+            "Can only hide votes in tallied phase."
+        }
+      })
+      |> handle_board_result(state)
+    }
+
     StartVoting -> {
       state.board
       |> board.start_voting()
@@ -171,6 +198,18 @@ fn handle_message(
         case err {
           board.InvalidTransitionState ->
             "Can only reveal votes in voting phase."
+        }
+      })
+      |> handle_board_result(state)
+    }
+
+    StopVoting -> {
+      state.board
+      |> board.stop_voting()
+      |> result.map_error(fn(err) {
+        case err {
+          board.InvalidTransitionState ->
+            "Can only stop voting in voting phase."
         }
       })
       |> handle_board_result(state)

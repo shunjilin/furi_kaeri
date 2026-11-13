@@ -161,10 +161,22 @@ pub fn reveal_content(card: Card(Draft)) -> Card(Review) {
   Card(..card, phase: Review)
 }
 
-pub fn reveal_votes(card: Card(Voting)) -> Card(Tallied) {
-  Card(..card, phase: Tallied(votes: card.phase.votes))
+pub fn hide_content(card: Card(Review)) -> Card(Draft) {
+  Card(..card, phase: Draft)
 }
 
 pub fn start_voting(card: Card(Review)) -> Card(Voting) {
   Card(..card, phase: Voting(votes: set.new()))
+}
+
+pub fn stop_voting(card: Card(Voting)) -> Card(Review) {
+  Card(..card, phase: Review)
+}
+
+pub fn reveal_votes(card: Card(Voting)) -> Card(Tallied) {
+  Card(..card, phase: Tallied(votes: card.phase.votes))
+}
+
+pub fn hide_votes(card: Card(Tallied)) -> Card(Voting) {
+  Card(..card, phase: Voting(votes: card.phase.votes))
 }

@@ -112,12 +112,15 @@ pub opaque type Msg {
   UserAddedCard(lane_id: lane.LaneId, content: String)
   UserDeletedCard(card_id: card.CardId)
   UserRevealedBoardContents
+  UserHidBoardContents
   UserDraggedCard(CardUnderDrag)
   UserDroppedCard(CardDroppedOn)
   UserStartedVoting
+  UserStoppedVoting
   UserAddedCardVote(card_id: card.CardId)
   UserRemovedCardVote(card_id: card.CardId)
   UserRevealedVotes
+  UserHidVotes
   UserSubmittedCountdownTimer(minutes: Int)
   UserChangedCountdownTimerInput(minutes: Int)
   UserStoppedCountdownTimer
@@ -242,6 +245,14 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       )
     }
 
+    UserHidBoardContents -> {
+      let run_cmd =
+        effect.from(fn(_) {
+          process.send(model.manager, board_api.HideCardContents)
+        })
+      #(model, run_cmd)
+    }
+
     UserDroppedCard(CardDroppedOn(to_card_id)) -> {
       case model.card_under_drag {
         option.None -> #(model, effect.none())
@@ -261,6 +272,12 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     UserStartedVoting -> {
       let run_cmd =
         effect.from(fn(_) { process.send(model.manager, board_api.StartVoting) })
+      #(model, run_cmd)
+    }
+
+    UserStoppedVoting -> {
+      let run_cmd =
+        effect.from(fn(_) { process.send(model.manager, board_api.StopVoting) })
       #(model, run_cmd)
     }
 
@@ -289,6 +306,12 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     UserRevealedVotes -> {
       let run_cmd =
         effect.from(fn(_) { process.send(model.manager, board_api.RevealVotes) })
+      #(model, run_cmd)
+    }
+
+    UserHidVotes -> {
+      let run_cmd =
+        effect.from(fn(_) { process.send(model.manager, board_api.HideVotes) })
       #(model, run_cmd)
     }
 
@@ -536,44 +559,109 @@ fn view(model: Model) -> Element(Msg) {
             )
 
           board.ReviewBoard(_) ->
-            element.element(
-              "confirm-action",
-              [
-                attribute.attribute("message", "Are you ready to start voting?"),
-              ],
-              [
-                html.button(
-                  [
-                    attribute.class("button"),
+            html.div([attribute.class("cluster")], [
+              element.element(
+                "confirm-action",
+                [
+                  attribute.attribute(
+                    "message",
+                    "Are you sure you want to hide contents and go back to draft?",
+                  ),
+                ],
+                [
+                  html.button(
+                    [
+                      attribute.class("button"),
+                      attribute.data("type", "delete"),
+                      event.on_click(UserHidBoardContents),
+                    ],
+                    [html.text("Hide Content")],
+                  ),
+                ],
+              ),
+              element.element(
+                "confirm-action",
+                [
+                  attribute.attribute(
+                    "message",
+                    "Are you ready to start voting?",
+                  ),
+                ],
+                [
+                  html.button(
+                    [
+                      attribute.class("button"),
 
-                    event.on_click(UserStartedVoting),
-                  ],
-                  [html.text("Start Voting")],
-                ),
-              ],
-            )
+                      event.on_click(UserStartedVoting),
+                    ],
+                    [html.text("Start Voting")],
+                  ),
+                ],
+              ),
+            ])
+
           board.VotingBoard(_) ->
+            html.div([attribute.class("cluster")], [
+              element.element(
+                "confirm-action",
+                [
+                  attribute.attribute(
+                    "message",
+                    "Are you sure you want to stop voting? This will remove all votes.",
+                  ),
+                ],
+                [
+                  html.button(
+                    [
+                      attribute.class("button"),
+                      attribute.data("type", "delete"),
+                      event.on_click(UserStoppedVoting),
+                    ],
+                    [html.text("Stop Voting")],
+                  ),
+                ],
+              ),
+              element.element(
+                "confirm-action",
+                [
+                  attribute.attribute(
+                    "message",
+                    "Are you ready to reveal all votes?",
+                  ),
+                ],
+                [
+                  html.button(
+                    [
+                      attribute.class("button"),
+
+                      event.on_click(UserRevealedVotes),
+                    ],
+                    [html.text("Reveal Votes")],
+                  ),
+                ],
+              ),
+            ])
+
+          board.TallyBoard(_) ->
             element.element(
               "confirm-action",
               [
                 attribute.attribute(
                   "message",
-                  "Are you ready to reveal all votes?",
+                  "Are you sure you want to hide votes?",
                 ),
               ],
               [
                 html.button(
                   [
                     attribute.class("button"),
-
-                    event.on_click(UserRevealedVotes),
+                    attribute.data("type", "delete"),
+                    event.on_click(UserHidVotes),
                   ],
-                  [html.text("Reveal Votes")],
+                  [html.text("Hide Votes")],
                 ),
               ],
             )
-
-          _ -> element.none()
         },
       ]),
       html.div([attribute.class("countdown-timer")], [

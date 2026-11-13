@@ -223,8 +223,38 @@ pub fn reveal_content(board: Board) -> Result(Board, RevealError) {
   Ok(Board(..board, phase: ReviewBoard(transitioned)))
 }
 
+pub fn hide_content(board: Board) -> Result(Board, TransitionError) {
+  case board.phase {
+    ReviewBoard(cards) -> {
+      let transitioned = transition_cards(cards, card.hide_content)
+      Ok(Board(..board, phase: DraftBoard(transitioned)))
+    }
+    _ -> Error(InvalidTransitionState)
+  }
+}
+
 pub type TransitionError {
   InvalidTransitionState
+}
+
+pub fn start_voting(board: Board) -> Result(Board, TransitionError) {
+  case board.phase {
+    ReviewBoard(cards) -> {
+      let transitioned = transition_cards(cards, card.start_voting)
+      Ok(Board(..board, phase: VotingBoard(transitioned)))
+    }
+    _ -> Error(InvalidTransitionState)
+  }
+}
+
+pub fn stop_voting(board: Board) -> Result(Board, TransitionError) {
+  case board.phase {
+    VotingBoard(cards) -> {
+      let transitioned = transition_cards(cards, card.stop_voting)
+      Ok(Board(..board, phase: ReviewBoard(transitioned)))
+    }
+    _ -> Error(InvalidTransitionState)
+  }
 }
 
 pub fn reveal_votes(board: Board) -> Result(Board, TransitionError) {
@@ -237,10 +267,10 @@ pub fn reveal_votes(board: Board) -> Result(Board, TransitionError) {
   }
 }
 
-pub fn start_voting(board: Board) -> Result(Board, TransitionError) {
+pub fn hide_votes(board: Board) -> Result(Board, TransitionError) {
   case board.phase {
-    ReviewBoard(cards) -> {
-      let transitioned = transition_cards(cards, card.start_voting)
+    TallyBoard(cards) -> {
+      let transitioned = transition_cards(cards, card.hide_votes)
       Ok(Board(..board, phase: VotingBoard(transitioned)))
     }
     _ -> Error(InvalidTransitionState)
