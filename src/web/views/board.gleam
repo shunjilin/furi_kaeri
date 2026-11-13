@@ -842,7 +842,7 @@ fn render_card(card: CardView) -> Element(Msg) {
                   [
                     attribute.class("card"),
                   ],
-                  [html.text(content)],
+                  [html.p([], [html.text(content)])],
                 ),
               ],
             ),
@@ -851,7 +851,7 @@ fn render_card(card: CardView) -> Element(Msg) {
       )
     VotingCardView(id, _, content, voted) ->
       html.div([attribute.class("card")], [
-        html.div([], [html.text(content)]),
+        html.p([], [html.text(content)]),
         html.div([attribute.class("card__actions")], [
           html.div([], [
             html.text(case voted {
@@ -884,7 +884,7 @@ fn render_card(card: CardView) -> Element(Msg) {
 
     TalliedCardView(_, _, content, vote_count) -> {
       html.div([attribute.class("card")], [
-        html.div([], [html.text(content)]),
+        html.p([], [html.text(content)]),
         html.div([attribute.class("card__actions")], [
           html.div([], [html.text(int.to_string(vote_count) <> " votes")]),
         ]),
