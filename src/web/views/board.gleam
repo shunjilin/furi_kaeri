@@ -843,7 +843,7 @@ fn render_card(card: CardView) -> Element(Msg) {
       }
 
       html.div([attribute.class("card")], [
-        html.div([], [html.text(content)]),
+        html.p([], [html.text(content)]),
         html.div([attribute.class("card__actions")], [
           edit_button,
           delete_button,
