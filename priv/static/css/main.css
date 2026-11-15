@@ -129,6 +129,25 @@ h6 {
     --shadow-xl: 0 8px 24px 3px rgba(21, 21, 21, 0.35);
 }
 
+@media (prefers-color-scheme: dark) {
+    :root {
+    --color-text: #ffffff;
+        --color-text-inverse: #000000;
+
+        --color-bg: #1c2b39;
+        --color-bg-secondary: #392a3c;
+        --color-bg-secondary-tint: #423146;
+        --color-bg-tertiary: #2e3621;
+
+        --color-primary: #b1d2f5;
+        --color-secondary: #ffda61;
+        --color-alert: #fca5a5;
+        --color-alert-secondary: #7F1D1D;
+
+        --color-border: #dfdcd8;
+    }
+}
+
 body {
     font-family: var(--font-accent);
     font-size: var(--text-base);
@@ -247,8 +266,11 @@ h2 {
 }
 
 draggable-item:hover {
-    background-color: var(--color-bg-secondary-tint);
     cursor: grab;
+}
+
+draggable-item:hover .card {
+    background-color: var(--color-bg-secondary-tint);
 }
 
 .lane {
