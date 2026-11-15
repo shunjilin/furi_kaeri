@@ -23,6 +23,7 @@ import lustre/attribute
 import lustre/effect.{type Effect}
 import lustre/element.{type Element}
 import lustre/element/html
+import lustre/element/keyed
 import lustre/event
 import lustre/server_component
 import web/api/board as board_api
@@ -73,8 +74,8 @@ pub type LaneView {
     id: lane.LaneId,
     title: String,
     cards: List(CardView),
-    draft: String,
     allow_adding: Bool,
+    form_version: Int,
   )
 }
 
@@ -101,6 +102,7 @@ pub opaque type Model {
     manager: Subject(board_api.Message),
     countdown_timer: CountdownTimer,
     alerts: List(Alert),
+    form_versions: dict.Dict(lane.LaneId, Int),
   )
 }
 
@@ -167,6 +169,7 @@ fn init(
       manager: manager,
       card_under_drag: option.None,
       alerts: [],
+      form_versions: dict.new(),
     )
 
   let pubsub_effect = {
@@ -203,7 +206,13 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           )
         })
       let cards_under_draft = dict.insert(model.cards_under_draft, lane_id, "")
-      #(Model(..model, cards_under_draft:), run_cmd)
+      // Increment the version counter for this lane to force a fresh input
+      // render, and empty the input.
+      let current_version =
+        dict.get(model.form_versions, lane_id) |> result.unwrap(0)
+      let form_versions =
+        dict.insert(model.form_versions, lane_id, current_version + 1)
+      #(Model(..model, cards_under_draft:, form_versions:), run_cmd)
     }
 
     UserEditedCard(lane_id, card_id, content) -> {
@@ -408,8 +417,6 @@ fn build_view_projections(model: Model) -> BoardView {
   let lanes_view =
     list.map(lanes, fn(lane) {
       let lane_id = lane.id(lane)
-      let draft =
-        dict.get(model.cards_under_draft, lane_id) |> result.unwrap("")
 
       let #(cards, allow_adding) = case board.phase(model.board) {
         board.DraftBoard(cards_dict) -> {
@@ -438,8 +445,8 @@ fn build_view_projections(model: Model) -> BoardView {
         id: lane_id,
         title: lane |> lane.title() |> non_empty_string.to_string(),
         cards:,
-        draft:,
         allow_adding:,
+        form_version: dict.get(model.form_versions, lane_id) |> result.unwrap(0),
       )
     })
 
@@ -759,7 +766,7 @@ fn render_lane(lane: LaneView) -> Element(Msg) {
     html.div([attribute.class("stack")], [
       html.h2([], [html.text(lane.title)]),
       case lane.allow_adding {
-        True -> render_add_card(lane.id, lane.draft)
+        True -> render_add_card(lane.id, lane.form_version)
         False -> element.none()
       },
       case lane.cards {
@@ -771,41 +778,49 @@ fn render_lane(lane: LaneView) -> Element(Msg) {
   ])
 }
 
-fn render_add_card(lane_id: lane.LaneId, draft: String) -> Element(Msg) {
+fn render_add_card(lane_id: lane.LaneId, form_version: Int) -> Element(Msg) {
   let lane.LaneId(lane_id_as_uuid) = lane_id
   let lane_id_as_string = uuid.to_string(lane_id_as_uuid)
   let field_name = lane_id_as_string <> "draft"
+  let key = "form-" <> int.to_string(form_version)
 
-  html.form(
-    [
-      attribute.class("card"),
-      event.on_submit(fn(form_data) {
-        let content = case list.key_find(form_data, field_name) {
-          Ok(c) -> c
-          Error(_) -> ""
-        }
-        UserAddedCard(lane_id, content:)
-      }),
-    ],
-    [
-      html.textarea(
+  keyed.div([], [
+    #(
+      // This is to forces refresh on submit, see UserAddedCard.
+      key,
+      html.form(
         [
-          attribute.id(field_name),
-          attribute.name(field_name),
-          attribute.aria_label("Draft Card"),
-          attribute.required(True),
-          attribute.placeholder("Add a card..."),
-          attribute.rows(3),
+          attribute.class("card"),
+          attribute.id(key),
+          event.on_submit(fn(form_data) {
+            let content = case list.key_find(form_data, field_name) {
+              Ok(c) -> c
+              Error(_) -> ""
+            }
+            UserAddedCard(lane_id, content:)
+          }),
         ],
-        draft,
+        [
+          html.textarea(
+            [
+              attribute.id(field_name),
+              attribute.name(field_name),
+              attribute.aria_label("Draft Card"),
+              attribute.required(True),
+              attribute.placeholder("Add a card..."),
+              attribute.rows(3),
+            ],
+            "",
+          ),
+          html.div([attribute.class("card__actions")], [
+            html.button([attribute.class("button"), attribute.type_("submit")], [
+              html.text("Submit"),
+            ]),
+          ]),
+        ],
       ),
-      html.div([attribute.class("card__actions")], [
-        html.button([attribute.class("button"), attribute.type_("submit")], [
-          html.text("Submit"),
-        ]),
-      ]),
-    ],
-  )
+    ),
+  ])
 }
 
 fn render_card(card: CardView) -> Element(Msg) {
